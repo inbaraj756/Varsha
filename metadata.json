@@ -1,0 +1,7 @@
+{
+  "name": "Roll70 Ledger - Secure Entry & Sum Register",
+  "description": "100 Roll Number ledger (Rolls 301 to 400) with real-time entry calculations (1 entry = 100), automated sum tallying, and password-protected admin editing (Inbaraj1102).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
