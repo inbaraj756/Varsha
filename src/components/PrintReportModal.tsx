@@ -40,7 +40,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Roll70_Register_Summary_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Varsha_Ledger_Summary_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -60,7 +60,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Roll 301 to 400 Ledger Report
+              Varsha - Roll 301 to 400 Ledger Report
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Generated on {new Date().toLocaleDateString()} · 1 Entry = {currencySymbol}{stats.unitRate}

@@ -42,7 +42,7 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
       if (success) {
         onClose();
       } else {
-        setError('Incorrect password. Access restricted to administrator (Inbaraj).');
+        setError('Incorrect administrator password. Access restricted.');
       }
     } catch {
       setError('Failed to verify password. Please check your network.');
@@ -76,10 +76,10 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Admin Edit Access
+              Varsha Admin Portal Login
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Other persons have view-only access. Enter password to edit.
+              Administrator Inbaraj only. Grants access to all 100 roll numbers and grand totals.
             </p>
           </div>
         </div>
@@ -147,7 +147,7 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  Unlock Editing
+                  Unlock Admin Portal
                 </>
               )}
             </button>

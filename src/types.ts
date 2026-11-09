@@ -31,4 +31,15 @@ export interface LedgerData {
   endRoll?: number;
   entries: RollEntry[];
   stats?: LedgerStats;
+  isAdmin?: boolean;
+}
+
+export interface StudentData {
+  rollNumber: number;
+  name: string;
+  entries: number;
+  unitRate: number;
+  currencySymbol: string;
+  totalSum: number;
+  title: string;
 }

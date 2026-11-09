@@ -6,16 +6,17 @@ import { LedgerTable } from './components/LedgerTable.tsx';
 import { AdminPasswordModal } from './components/AdminPasswordModal.tsx';
 import { BulkActionModal } from './components/BulkActionModal.tsx';
 import { PrintReportModal } from './components/PrintReportModal.tsx';
-import { RollEntry, LedgerData, LedgerStats } from './types.ts';
-import { ShieldAlert, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { StudentPortal } from './components/StudentPortal.tsx';
+import { RollEntry, LedgerData, LedgerStats, StudentData } from './types.ts';
+import { ShieldAlert, RefreshCw, CheckCircle2, ShieldCheck, ArrowLeft } from 'lucide-react';
 
 const ADMIN_STORAGE_KEY = 'roll70_admin_token';
+const STUDENT_STORAGE_KEY = 'varsha_student_session';
 const LEDGER_LOCAL_KEY = 'roll70_local_ledger';
 const EXPECTED_PASSWORD = 'ME';
 
 const START_ROLL = 301;
-const END_ROLL = 400;
-const TOTAL_ROLLS = 100; // 370 + 30 = 400
+const TOTAL_ROLLS = 100; // Rolls 301 to 400
 
 const USER_ENTRIES_COUNTS = [
   10, 5, 10, 9, 20, 20, 5, 9, 9, 10, 6, 9, 6, 10, 9, 10, 9, 10, 10, 10,
@@ -24,7 +25,6 @@ const USER_ENTRIES_COUNTS = [
   10, 7, 3, 10, 8, 9, 9, 10, 6, 2, 2
 ];
 
-// Helper to generate clean initial 100 rolls (301 to 400)
 function createInitialRolls(): RollEntry[] {
   return Array.from({ length: TOTAL_ROLLS }, (_, i) => {
     const roll = START_ROLL + i;
@@ -72,7 +72,8 @@ function calculateStats(entries: RollEntry[], unitRate: number): LedgerStats {
 export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
     try {
-      return sessionStorage.getItem(ADMIN_STORAGE_KEY) === EXPECTED_PASSWORD;
+      const stored = sessionStorage.getItem(ADMIN_STORAGE_KEY);
+      return stored?.toUpperCase() === 'ME';
     } catch {
       return false;
     }
@@ -86,12 +87,21 @@ export default function App() {
     }
   });
 
+  const [activeStudent, setActiveStudent] = useState<StudentData | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(STUDENT_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [ledger, setLedger] = useState<LedgerData>(() => {
     const initialRolls = createInitialRolls();
     return {
       unitRate: 100,
       currencySymbol: '₹',
-      title: 'Roll 301 to 400 Entry Register',
+      title: 'Varsha',
       updatedAt: new Date().toISOString(),
       entries: initialRolls,
       stats: calculateStats(initialRolls, 100),
@@ -104,7 +114,6 @@ export default function App() {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [loading, setLoading] = useState(true);
 
   // Dark mode
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -127,44 +136,48 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Load from server or localStorage
-  const fetchLedger = useCallback(async () => {
-    try {
-      const res = await fetch('/api/ledger');
-      if (res.ok) {
-        const data = await res.json();
-        const unitRate = data.unitRate || 100;
-        const stats = calculateStats(data.entries, unitRate);
-        setLedger({ ...data, unitRate, stats });
-        try {
-          localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(data));
-        } catch {
-          // ignore storage quota
-        }
-      } else {
-        // Fallback to local storage if API is not yet ready
-        loadFromLocalStorage();
-      }
-    } catch {
-      loadFromLocalStorage();
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadFromLocalStorage = () => {
+  const loadFromLocalStorage = useCallback(() => {
     try {
       const saved = localStorage.getItem(LEDGER_LOCAL_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         const unitRate = parsed.unitRate || 100;
-        const stats = calculateStats(parsed.entries, unitRate);
+        const stats = calculateStats(parsed.entries || [], unitRate);
         setLedger({ ...parsed, unitRate, stats });
       }
     } catch {
       // ignore
     }
-  };
+  }, []);
+
+  // Load from server
+  const fetchLedger = useCallback(async (token?: string) => {
+    try {
+      const activeToken = token || adminPassword || sessionStorage.getItem(ADMIN_STORAGE_KEY) || '';
+      const headers: Record<string, string> = {};
+      if (activeToken) {
+        headers['x-admin-password'] = activeToken;
+      }
+      const res = await fetch('/api/ledger', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        const unitRate = data.unitRate || 100;
+        if (data.entries && Array.isArray(data.entries)) {
+          const stats = calculateStats(data.entries, unitRate);
+          setLedger({ ...data, title: 'Varsha', unitRate, stats });
+          try {
+            localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(data));
+          } catch {
+            // ignore
+          }
+        }
+      } else {
+        loadFromLocalStorage();
+      }
+    } catch {
+      loadFromLocalStorage();
+    }
+  }, [adminPassword, loadFromLocalStorage]);
 
   useEffect(() => {
     fetchLedger();
@@ -184,7 +197,7 @@ export default function App() {
             password: currentPassword || EXPECTED_PASSWORD,
             entries: updatedLedger.entries,
             unitRate: updatedLedger.unitRate,
-            title: updatedLedger.title,
+            title: 'Varsha',
             currencySymbol: updatedLedger.currencySymbol,
           }),
         });
@@ -201,7 +214,6 @@ export default function App() {
           setSaveStatus('error');
         }
       } catch {
-        // Server offline, cache in local storage
         try {
           localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(updatedLedger));
         } catch {
@@ -213,17 +225,17 @@ export default function App() {
     []
   );
 
-  // Handle password unlock
+  // Handle password unlock for Admin
   const handleUnlock = async (enteredPassword: string): Promise<boolean> => {
     const trimmed = enteredPassword.trim();
-    if (trimmed === EXPECTED_PASSWORD) {
+    if (trimmed.toUpperCase() === 'ME') {
       setIsAdmin(true);
-      setAdminPassword(trimmed);
-      sessionStorage.setItem(ADMIN_STORAGE_KEY, trimmed);
+      setAdminPassword('ME');
+      sessionStorage.setItem(ADMIN_STORAGE_KEY, 'ME');
+      fetchLedger('ME');
       return true;
     }
 
-    // Also check server endpoint
     try {
       const res = await fetch('/api/auth/verify', {
         method: 'POST',
@@ -234,6 +246,7 @@ export default function App() {
         setIsAdmin(true);
         setAdminPassword(trimmed);
         sessionStorage.setItem(ADMIN_STORAGE_KEY, trimmed);
+        fetchLedger(trimmed);
         return true;
       }
     } catch {
@@ -249,7 +262,25 @@ export default function App() {
     sessionStorage.removeItem(ADMIN_STORAGE_KEY);
   };
 
-  // Update a single entry
+  const handleStudentLoginSuccess = (student: StudentData) => {
+    setActiveStudent(student);
+    try {
+      sessionStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(student));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleStudentLogout = () => {
+    setActiveStudent(null);
+    try {
+      sessionStorage.removeItem(STUDENT_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Update a single entry (Admin only)
   const handleUpdateEntry = (rollNumber: number, partial: Partial<RollEntry>) => {
     if (!isAdmin) {
       setIsPasswordModalOpen(true);
@@ -281,7 +312,7 @@ export default function App() {
     });
   };
 
-  // Quick increment from roll grid
+  // Quick increment from roll grid (Admin only)
   const handleQuickAdd = (rollNumber: number, delta: number) => {
     if (!isAdmin) {
       setIsPasswordModalOpen(true);
@@ -395,104 +426,138 @@ export default function App() {
         onToggleDarkMode={() => setDarkMode(!darkMode)}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
+        activeStudent={activeStudent}
+        onStudentLogout={handleStudentLogout}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Header Hero Strip */}
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              Roll 301 to 400 Entry Register
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Live automated tally · 1 entry = {ledger.currencySymbol}{ledger.unitRate} · 100 Persons (Rolls 301–400)
-            </p>
-          </div>
+        {isAdmin ? (
+          /* ======================================================== */
+          /* ADMIN PORTAL: Full 100 Roll Numbers & Grand Calculations */
+          /* ======================================================== */
+          <div className="space-y-6">
+            {/* Header Hero Strip */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Admin Mode Active
+                  </span>
+                  <span className="text-xs text-slate-400">·</span>
+                  <span className="text-xs text-slate-500 font-mono">
+                    Full Access Granted
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                  Varsha — Administrator Register
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Complete view of all 100 Roll Numbers (301 to 400) · 1 Entry = {ledger.currencySymbol}{ledger.unitRate} · Full Grand Calculations
+                </p>
+              </div>
 
-          <div className="flex items-center gap-3">
-            {/* Real-time Save status indicator */}
-            <div className="flex items-center gap-1.5 text-xs font-mono text-slate-500 dark:text-slate-400">
-              {saveStatus === 'saving' ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                  <span>Syncing...</span>
-                </>
-              ) : saveStatus === 'saved' ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Saved</span>
-                </>
-              ) : (
-                <>
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
-                  <span>Sync offline</span>
-                </>
-              )}
+              <div className="flex items-center gap-3">
+                {/* Real-time Save status indicator */}
+                <div className="flex items-center gap-1.5 text-xs font-mono text-slate-500 dark:text-slate-400">
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : saveStatus === 'saved' ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Saved</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Sync offline</span>
+                    </>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleLockAdmin}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Exit to Public View</span>
+                </button>
+              </div>
             </div>
 
-            {isAdmin ? (
-              <span className="px-2.5 py-1 text-xs font-medium text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/80 rounded-md border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
-                Admin (Inbaraj)
-              </span>
-            ) : (
-              <button
-                onClick={() => setIsPasswordModalOpen(true)}
-                className="px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md border border-slate-300 dark:border-slate-700 transition-colors"
-              >
-                Viewer Mode (Read-Only)
-              </button>
-            )}
+            {/* Financial & Entry Statistics Cards (Unlocked for Admin) */}
+            <StatsCards
+              stats={currentStats}
+              currencySymbol={ledger.currencySymbol}
+              isAdmin={isAdmin}
+              onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
+            />
+
+            {/* Visual 301-400 Roll Number Grid Picker */}
+            <RollGridSelector
+              entries={ledger.entries}
+              selectedRoll={selectedRoll}
+              onSelectRoll={handleSelectRoll}
+              isAdmin={isAdmin}
+              onQuickAdd={handleQuickAdd}
+            />
+
+            {/* Main 100 Roll Numbers Ledger Table */}
+            <LedgerTable
+              entries={ledger.entries}
+              unitRate={ledger.unitRate}
+              currencySymbol={ledger.currencySymbol}
+              isAdmin={isAdmin}
+              onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
+              onUpdateEntry={handleUpdateEntry}
+              selectedRoll={selectedRoll}
+              activeTab={activeTab}
+              onSelectTab={setActiveTab}
+            />
           </div>
-        </div>
-
-        {/* Financial & Entry Statistics Cards */}
-        <StatsCards
-          stats={currentStats}
-          currencySymbol={ledger.currencySymbol}
-          isAdmin={isAdmin}
-          onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
-        />
-
-        {/* Visual 1-70 Roll Number Grid Picker */}
-        <RollGridSelector
-          entries={ledger.entries}
-          selectedRoll={selectedRoll}
-          onSelectRoll={handleSelectRoll}
-          isAdmin={isAdmin}
-          onQuickAdd={handleQuickAdd}
-        />
-
-        {/* Main 70 Roll Numbers Ledger Table */}
-        <LedgerTable
-          entries={ledger.entries}
-          unitRate={ledger.unitRate}
-          currencySymbol={ledger.currencySymbol}
-          isAdmin={isAdmin}
-          onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
-          onUpdateEntry={handleUpdateEntry}
-          selectedRoll={selectedRoll}
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-        />
+        ) : (
+          /* ======================================================== */
+          /* PUBLIC SCENE: Student Roll Login & Individual Statement  */
+          /* ======================================================== */
+          <StudentPortal
+            onAdminClick={() => setIsPasswordModalOpen(true)}
+            onStudentLoginSuccess={handleStudentLoginSuccess}
+            activeStudent={activeStudent}
+            onStudentLogout={handleStudentLogout}
+          />
+        )}
       </main>
 
       {/* Footer */}
       <footer className="mt-auto py-6 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>
-            Roll70 Ledger System · Secured by password authentication (Inbaraj).
+            <strong>Varsha</strong> Ledger System · Secured Administrator Portal.
           </div>
           <div className="flex items-center gap-4">
-            <span>100 Persons Registered (Rolls 301–400)</span>
+            <span>100 Students (Rolls 301–400)</span>
             <span>·</span>
             <span>1 Entry = {ledger.currencySymbol}{ledger.unitRate}</span>
             <span>·</span>
-            <button
-              onClick={() => setIsPrintModalOpen(true)}
-              className="hover:text-slate-900 dark:hover:text-white underline cursor-pointer"
-            >
-              Export Report
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={() => setIsPrintModalOpen(true)}
+                className="hover:text-slate-900 dark:hover:text-white underline cursor-pointer"
+              >
+                Export Ledger Report
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsPasswordModalOpen(true)}
+                className="hover:text-slate-900 dark:hover:text-white underline cursor-pointer"
+              >
+                Admin Portal Login
+              </button>
+            )}
           </div>
         </div>
       </footer>

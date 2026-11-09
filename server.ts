@@ -8,7 +8,13 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Inbaraj1102';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'ME';
+
+function checkAdminAuth(pass?: string): boolean {
+  if (!pass) return false;
+  const p = String(pass).trim();
+  return p === ADMIN_PASSWORD || p.toUpperCase() === 'ME';
+}
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'ledger.json');
@@ -38,7 +44,7 @@ function ensureDataFile() {
     const initialData = {
       unitRate: 100,
       currencySymbol: '₹',
-      title: 'Roll 301 to 400 Entry Register',
+      title: 'Varsha',
       updatedAt: new Date().toISOString(),
       entries: initialEntries,
     };
@@ -67,7 +73,7 @@ function readLedger() {
       });
       data.entries = completeEntries;
       data.unitRate = data.unitRate || 100;
-      data.title = 'Roll 301 to 400 Entry Register';
+      data.title = 'Varsha';
       fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
     }
     return data;
@@ -128,16 +134,82 @@ app.get('/api/ledger', (req, res) => {
   if (!data) {
     return res.status(500).json({ error: 'Failed to read ledger data' });
   }
-  const stats = computeStats(data);
-  res.json({
-    ...data,
-    stats,
+
+  const adminPass = (req.headers['x-admin-password'] as string) || (req.query.password as string);
+  const isAdmin = checkAdminAuth(adminPass);
+
+  if (isAdmin) {
+    const stats = computeStats(data);
+    return res.json({
+      ...data,
+      title: 'Varsha',
+      isAdmin: true,
+      stats,
+    });
+  }
+
+  // Public safe view: do not expose all roll numbers or grand totals to public
+  return res.json({
+    title: 'Varsha',
+    unitRate: data.unitRate || 100,
+    currencySymbol: data.currencySymbol || '₹',
+    totalRollNumbers: TOTAL_ROLLS,
+    startRoll: START_ROLL,
+    endRoll: END_ROLL,
+    isProtected: true,
+  });
+});
+
+// Student individual login (Username = Roll #, Password = Roll #)
+app.post('/api/auth/student-login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Please enter both Username and Password.' });
+  }
+
+  const cleanUser = String(username).replace(/^#/, '').trim();
+  const cleanPass = String(password).trim();
+  const roll = parseInt(cleanUser, 10);
+
+  if (isNaN(roll) || roll < START_ROLL || roll > END_ROLL) {
+    return res.status(400).json({
+      error: `Invalid roll number. Please enter a roll number between ${START_ROLL} and ${END_ROLL}.`,
+    });
+  }
+
+  if (cleanPass !== String(roll)) {
+    return res.status(401).json({
+      error: `Incorrect password for Roll #${roll}. Password must be equal to your roll number (${roll}).`,
+    });
+  }
+
+  const data = readLedger();
+  if (!data) {
+    return res.status(500).json({ error: 'Failed to read ledger' });
+  }
+
+  const student = data.entries.find((e: any) => e.rollNumber === roll);
+  const unitRate = Number(data.unitRate) || 100;
+  const entriesCount = Number(student?.entries) || 0;
+  const totalSum = entriesCount * unitRate;
+
+  return res.json({
+    success: true,
+    student: {
+      rollNumber: roll,
+      name: student?.name || `Roll ${roll}`,
+      entries: entriesCount,
+      unitRate,
+      currencySymbol: data.currencySymbol || '₹',
+      totalSum,
+      title: 'Varsha',
+    },
   });
 });
 
 app.post('/api/auth/verify', (req, res) => {
   const { password } = req.body;
-  if (password === ADMIN_PASSWORD) {
+  if (checkAdminAuth(password)) {
     return res.json({ success: true, message: 'Admin verified successfully' });
   }
   return res.status(401).json({ success: false, error: 'Incorrect password. Edit access denied.' });
@@ -146,8 +218,8 @@ app.post('/api/auth/verify', (req, res) => {
 app.put('/api/ledger', (req, res) => {
   const { password, entries, unitRate, title, currencySymbol } = req.body;
   
-  if (password !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Unauthorized: Incorrect password. Only admin Inbaraj can edit.' });
+  if (!checkAdminAuth(password)) {
+    return res.status(401).json({ error: 'Unauthorized: Incorrect password. Only admin can edit.' });
   }
 
   const current = readLedger();
@@ -184,7 +256,7 @@ app.put('/api/ledger', (req, res) => {
 app.post('/api/ledger/entry', (req, res) => {
   const { password, rollNumber, entries, name, status, notes } = req.body;
 
-  if (password !== ADMIN_PASSWORD) {
+  if (!checkAdminAuth(password)) {
     return res.status(401).json({ error: 'Unauthorized: Incorrect password' });
   }
 
@@ -212,7 +284,7 @@ app.post('/api/ledger/entry', (req, res) => {
 
 app.post('/api/ledger/reset', (req, res) => {
   const { password } = req.body;
-  if (password !== ADMIN_PASSWORD) {
+  if (!checkAdminAuth(password)) {
     return res.status(401).json({ error: 'Unauthorized: Incorrect password' });
   }
 
@@ -225,7 +297,7 @@ app.post('/api/ledger/reset', (req, res) => {
   }));
   const saved = writeLedger(current);
   const stats = computeStats(saved);
-  res.json({ success: true, message: 'All 70 roll numbers reset to 0 entries', ...saved, stats });
+  res.json({ success: true, message: 'All 100 roll numbers reset to 0 entries', ...saved, stats });
 });
 
 async function startServer() {

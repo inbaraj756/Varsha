@@ -135,7 +135,7 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
             onClick={onOpenPasswordModal}
             className="underline font-semibold hover:text-amber-950 dark:hover:text-white cursor-pointer"
           >
-            Enter Admin Password (Inbaraj) to Edit
+            Enter Admin Password to Edit
           </button>
         </div>
       ) : (
@@ -143,7 +143,7 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>
-              <strong>Admin Mode Active (Inbaraj):</strong> You have full permission to add/decrement entries, edit names, and record notes.
+              <strong>Admin Mode Active:</strong> You have full permission to add/decrement entries and edit names.
             </span>
           </div>
           <span className="font-mono text-[11px] bg-emerald-200/60 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-200">
