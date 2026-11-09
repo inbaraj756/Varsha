@@ -11,7 +11,7 @@ import { ShieldAlert, RefreshCw, CheckCircle2 } from 'lucide-react';
 
 const ADMIN_STORAGE_KEY = 'roll70_admin_token';
 const LEDGER_LOCAL_KEY = 'roll70_local_ledger';
-const EXPECTED_PASSWORD = 'Inbaraj1102';
+const EXPECTED_PASSWORD = 'ME';
 
 const START_ROLL = 301;
 const END_ROLL = 400;
