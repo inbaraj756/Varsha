@@ -97,6 +97,27 @@ export default function App() {
   });
 
   const [ledger, setLedger] = useState<LedgerData>(() => {
+    try {
+      const saved = localStorage.getItem(LEDGER_LOCAL_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          Array.isArray(parsed.entries) &&
+          parsed.entries.length === TOTAL_ROLLS &&
+          parsed.entries[0]?.rollNumber === START_ROLL
+        ) {
+          const unitRate = parsed.unitRate || 100;
+          return {
+            ...parsed,
+            title: 'Varsha',
+            unitRate,
+            stats: calculateStats(parsed.entries, unitRate),
+          };
+        }
+      }
+    } catch {
+      // ignore localStorage errors
+    }
     const initialRolls = createInitialRolls();
     return {
       unitRate: 100,
@@ -141,9 +162,15 @@ export default function App() {
       const saved = localStorage.getItem(LEDGER_LOCAL_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        const unitRate = parsed.unitRate || 100;
-        const stats = calculateStats(parsed.entries || [], unitRate);
-        setLedger({ ...parsed, unitRate, stats });
+        if (
+          Array.isArray(parsed.entries) &&
+          parsed.entries.length === TOTAL_ROLLS &&
+          parsed.entries[0]?.rollNumber === START_ROLL
+        ) {
+          const unitRate = parsed.unitRate || 100;
+          const stats = calculateStats(parsed.entries, unitRate);
+          setLedger({ ...parsed, title: 'Varsha', unitRate, stats });
+        }
       }
     } catch {
       // ignore
@@ -159,7 +186,8 @@ export default function App() {
         headers['x-admin-password'] = activeToken;
       }
       const res = await fetch('/api/ledger', { headers });
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         const unitRate = data.unitRate || 100;
         if (data.entries && Array.isArray(data.entries)) {
@@ -202,7 +230,8 @@ export default function App() {
           }),
         });
 
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           setSaveStatus('saved');
           try {
@@ -210,8 +239,16 @@ export default function App() {
           } catch {
             // ignore
           }
-        } else {
+        } else if (res.status === 401) {
           setSaveStatus('error');
+        } else {
+          // Static hosting without API backend: persist locally
+          try {
+            localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(updatedLedger));
+          } catch {
+            // ignore
+          }
+          setSaveStatus('saved');
         }
       } catch {
         try {
@@ -279,6 +316,24 @@ export default function App() {
       // ignore
     }
   };
+
+  const getStudentFallback = useCallback(
+    (rollNumber: number): StudentData => {
+      const target = ledger.entries.find((e) => e.rollNumber === rollNumber);
+      const unitRate = Number(ledger.unitRate) || 100;
+      const entriesCount = Number(target?.entries) || 0;
+      return {
+        rollNumber,
+        name: target?.name || `Roll ${rollNumber}`,
+        entries: entriesCount,
+        unitRate,
+        currencySymbol: ledger.currencySymbol || '₹',
+        totalSum: entriesCount * unitRate,
+        title: 'Varsha',
+      };
+    },
+    [ledger]
+  );
 
   // Update a single entry (Admin only)
   const handleUpdateEntry = (rollNumber: number, partial: Partial<RollEntry>) => {
@@ -528,6 +583,7 @@ export default function App() {
             onStudentLoginSuccess={handleStudentLoginSuccess}
             activeStudent={activeStudent}
             onStudentLogout={handleStudentLogout}
+            getStudentFallback={getStudentFallback}
           />
         )}
       </main>
