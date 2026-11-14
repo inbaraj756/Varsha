@@ -470,7 +470,7 @@ export default function App() {
   const currentStats = ledger.stats || calculateStats(ledger.entries, ledger.unitRate);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors print:bg-white print:text-slate-900">
       <Navbar
         isAdmin={isAdmin}
         onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
@@ -485,7 +485,7 @@ export default function App() {
         onStudentLogout={handleStudentLogout}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 ${isPrintModalOpen ? 'print:hidden' : 'print:p-0'}`}>
         {isAdmin ? (
           /* ======================================================== */
           /* ADMIN PORTAL: Full 100 Roll Numbers & Grand Calculations */
@@ -589,7 +589,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto py-6 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+      <footer className="mt-auto py-6 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>
             <strong>Varsha</strong> Ledger System · Secured Administrator Portal.

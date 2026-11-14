@@ -12,6 +12,7 @@ import {
   Calculator,
   ArrowRight,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { StudentData } from '../types.ts';
 
@@ -111,17 +112,181 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setError(null);
   };
 
+  const [printNotice, setPrintNotice] = useState<string | null>(null);
+
   const handlePrintSlip = () => {
-    window.print();
+    setPrintNotice(null);
+    try {
+      window.print();
+    } catch {
+      // ignore
+    }
+    if (window.self !== window.top) {
+      setPrintNotice('If print dialog does not open inside preview, use "Save Slip (PNG)" to download your receipt.');
+    }
+  };
+
+  const handleDownloadSlipPNG = () => {
+    if (!activeStudent) return;
+    const canvas = document.createElement('canvas');
+    const width = 900;
+    const height = 660;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // White background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    // Outer card border
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(24, 24, width - 48, height - 48);
+
+    // Top dark header banner
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(24, 24, width - 48, 130);
+
+    ctx.fillStyle = '#a5b4fc';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText('VARSHA STUDENT REGISTER · VERIFIED SLIP', 56, 66);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 38px sans-serif';
+    ctx.fillText(`Roll Number #${activeStudent.rollNumber}`, 56, 112);
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(`${activeStudent.name} · Generated on ${new Date().toLocaleDateString()}`, 56, 140);
+
+    // Three summary boxes
+    const boxY = 184;
+    const boxW = 248;
+    const boxH = 128;
+
+    // Box 1: Entries
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(56, boxY, boxW, boxH);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(56, boxY, boxW, boxH);
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('MY ENTRIES COUNT', 76, boxY + 34);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 40px monospace';
+    ctx.fillText(String(activeStudent.entries), 76, boxY + 88);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('entries recorded', 76, boxY + 112);
+
+    // Box 2: Unit Rate
+    const box2X = 56 + boxW + 22;
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(box2X, boxY, boxW, boxH);
+    ctx.strokeRect(box2X, boxY, boxW, boxH);
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('RATE PER ENTRY', box2X + 20, boxY + 34);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 40px monospace';
+    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.unitRate}`, box2X + 20, boxY + 88);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('fixed unit rate', box2X + 20, boxY + 112);
+
+    // Box 3: Calculated Sum
+    const box3X = box2X + boxW + 22;
+    ctx.fillStyle = '#ecfdf5';
+    ctx.fillRect(box3X, boxY, boxW, boxH);
+    ctx.strokeStyle = '#a7f3d0';
+    ctx.strokeRect(box3X, boxY, boxW, boxH);
+    ctx.fillStyle = '#065f46';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('MY CALCULATED SUM', box3X + 20, boxY + 34);
+    ctx.fillStyle = '#022c22';
+    ctx.font = 'bold 38px monospace';
+    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, box3X + 20, boxY + 88);
+    ctx.fillStyle = '#047857';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`${activeStudent.entries} × ${activeStudent.currencySymbol}${activeStudent.unitRate}`, box3X + 20, boxY + 112);
+
+    // Receipt details section
+    const detY = 348;
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(56, detY, width - 112, 180);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(56, detY, width - 112, 180);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#475569';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('Item Description', 80, detY + 36);
+    ctx.fillText('Amount', width - 150, detY + 36);
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(80, detY + 52);
+    ctx.lineTo(width - 80, detY + 52);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(`Roll #${activeStudent.rollNumber} (${activeStudent.name})`, 80, detY + 88);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '15px monospace';
+    ctx.fillText(
+      `Tally count: ${activeStudent.entries} units @ ${activeStudent.currencySymbol}${activeStudent.unitRate} each`,
+      80,
+      detY + 114
+    );
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, width - 80, detY + 96);
+
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.beginPath();
+    ctx.moveTo(80, detY + 130);
+    ctx.lineTo(width - 80, detY + 130);
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('Total Payable / Calculated Balance', 80, detY + 162);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#059669';
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, width - 80, detY + 162);
+    ctx.textAlign = 'left';
+
+    // Footer timestamp
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px monospace';
+    ctx.fillText(`Varsha Ledger System · Roll #${activeStudent.rollNumber} · ${new Date().toLocaleString()}`, 56, height - 52);
+
+    const url = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Varsha_Roll_${activeStudent.rollNumber}_Slip.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto py-4 sm:py-8">
+    <div className="w-full max-w-4xl mx-auto py-4 sm:py-8 print:py-0">
       {activeStudent ? (
         /* Logged In: Individual Student Statement Card */
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden transition-all">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden transition-all print:shadow-none print:border-slate-300 print:bg-white print:text-slate-900">
           {/* Card Header Strip */}
-          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:bg-slate-900 print:text-white">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs uppercase tracking-widest font-mono text-indigo-300 font-semibold">
@@ -139,7 +304,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
               <button
                 type="button"
                 onClick={handlePrintSlip}
@@ -150,7 +315,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={onStudentLogout}
+                onClick={handleDownloadSlipPNG}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Save Slip (PNG)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPrintNotice(null);
+                  onStudentLogout();
+                }}
                 className="px-3.5 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -158,6 +334,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </button>
             </div>
           </div>
+
+          {printNotice && (
+            <div className="mx-6 mt-4 p-3 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 flex items-center justify-between gap-2 print:hidden">
+              <span>{printNotice}</span>
+              <button
+                type="button"
+                onClick={handleDownloadSlipPNG}
+                className="px-2.5 py-1 bg-indigo-600 text-white rounded font-semibold whitespace-nowrap cursor-pointer"
+              >
+                Save PNG
+              </button>
+            </div>
+          )}
 
           {/* Statement Content */}
           <div className="p-6 sm:p-8 space-y-6">
@@ -264,7 +453,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             </div>
 
             {/* Back Button */}
-            <div className="flex justify-center pt-2">
+            <div className="flex justify-center pt-2 print:hidden">
               <button
                 type="button"
                 onClick={onStudentLogout}
