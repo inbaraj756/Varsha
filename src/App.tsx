@@ -353,9 +353,13 @@ export default function App() {
     try {
       await signInWithGoogle();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Google Sign-In failed.';
+      const rawMsg = err instanceof Error ? err.message : 'Google Sign-In failed.';
+      const msg = rawMsg.includes('unauthorized-domain')
+        ? `Domain "${window.location.hostname}" is not authorized in Firebase Auth. Add "${window.location.hostname}" under Firebase Console -> Authentication -> Settings -> Authorized domains, or open the AI Studio App URL.`
+        : rawMsg;
       setCloudError(msg);
       setCloudStatus('error');
+      setIsCloudModalOpen(true);
     }
   }, []);
 
@@ -499,7 +503,23 @@ export default function App() {
     return false;
   };
 
-  const handleLockAdmin = () => {
+  const handleLockAdmin = async () => {
+    if (dirtyRolls.size > 0) {
+      const normalizedEntries = ledger.entries.map((item) => ({
+        ...item,
+        name: item.name && item.name.trim() ? item.name.trim() : `Roll ${item.rollNumber}`,
+        entries: Math.max(0, Number(item.entries) || 0),
+      }));
+      const updatedStats = calculateStats(normalizedEntries, ledger.unitRate);
+      const updated: LedgerData = {
+        ...ledger,
+        entries: normalizedEntries,
+        stats: updatedStats,
+        updatedAt: new Date().toISOString(),
+      };
+      setLedger(updated);
+      await syncWithServer(updated, adminPassword, new Set(dirtyRolls));
+    }
     setIsAdmin(false);
     setAdminPassword('');
     sessionStorage.removeItem(ADMIN_STORAGE_KEY);
@@ -528,6 +548,7 @@ export default function App() {
       const target = ledger.entries.find((e) => e.rollNumber === rollNumber);
       const unitRate = Number(ledger.unitRate) || 100;
       const entriesCount = Number(target?.entries) || 0;
+      const updatedAtMs = ledger.updatedAt ? new Date(ledger.updatedAt).getTime() : 0;
       return {
         rollNumber,
         name: target?.name || `Roll ${rollNumber}`,
@@ -536,6 +557,7 @@ export default function App() {
         currencySymbol: ledger.currencySymbol || '₹',
         totalSum: entriesCount * unitRate,
         title: 'Varsha',
+        updatedAtMs: Number.isFinite(updatedAtMs) ? updatedAtMs : 0,
       };
     },
     [ledger]
@@ -950,6 +972,8 @@ export default function App() {
             activeStudent={activeStudent}
             onStudentLogout={handleStudentLogout}
             getStudentFallback={getStudentFallback}
+            ledgerUpdatedAt={ledger.updatedAt}
+            isCloudAdmin={isCloudAdmin}
           />
         )}
       </main>

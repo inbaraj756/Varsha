@@ -62,9 +62,12 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
 
       // Search query filter (search by roll number or name)
       if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase().trim();
-        const matchesRoll = item.rollNumber.toString() === query || `roll ${item.rollNumber}`.includes(query);
-        const matchesName = item.name.toLowerCase().includes(query);
+        const rawQuery = searchQuery.toLowerCase().trim();
+        const cleanQuery = rawQuery.replace(/^#/, '').trim();
+        const matchesRoll =
+          (cleanQuery.length > 0 && item.rollNumber.toString().includes(cleanQuery)) ||
+          `roll ${item.rollNumber}`.includes(rawQuery);
+        const matchesName = item.name.toLowerCase().includes(rawQuery);
         if (!matchesRoll && !matchesName) return false;
       }
 
@@ -222,7 +225,7 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
           <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
             <tr>
               <th className="py-3 px-4 w-20 text-center">Roll #</th>
-              <th className="py-3 px-4 min-w-[160px]">Person Name</th>
+              <th className="py-3 px-4 min-w-[200px]">Person Name</th>
               <th className="py-3 px-4 min-w-[200px] text-center">
                 Entries Count
               </th>
@@ -273,14 +276,14 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
                             onUpdateEntry(item.rollNumber, { name: e.target.value })
                           }
                           placeholder={`Roll ${item.rollNumber}`}
-                          className={`w-full px-2.5 py-1 text-xs bg-slate-50 dark:bg-slate-800 border rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-slate-900 dark:focus:ring-slate-400 ${
+                          className={`w-full px-3 py-1.5 text-base sm:text-lg font-semibold bg-slate-50 dark:bg-slate-800 border rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-slate-900 dark:focus:ring-slate-400 ${
                             dirtyRolls.has(item.rollNumber)
                               ? 'border-amber-400 dark:border-amber-600'
                               : 'border-slate-200 dark:border-slate-700'
                           }`}
                         />
                       ) : (
-                        <span className="font-medium text-slate-800 dark:text-slate-200">
+                        <span className="text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100">
                           {item.name || `Roll ${item.rollNumber}`}
                         </span>
                       )}
@@ -342,6 +345,18 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
                           >
                             +5
                           </button>
+
+                          {dirtyRolls.has(item.rollNumber) && (
+                            <button
+                              type="button"
+                              onClick={onSaveAll}
+                              className="sm:hidden px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-0.5 transition-colors cursor-pointer"
+                              title="Save changes"
+                            >
+                              <Save className="w-2.5 h-2.5" />
+                              <span>Save</span>
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div

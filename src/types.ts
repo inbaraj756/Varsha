@@ -42,4 +42,5 @@ export interface StudentData {
   currencySymbol: string;
   totalSum: number;
   title: string;
+  updatedAtMs?: number;
 }

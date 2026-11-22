@@ -26,6 +26,8 @@ interface StudentPortalProps {
   activeStudent: StudentData | null;
   onStudentLogout: () => void;
   getStudentFallback: (rollNumber: number) => StudentData;
+  ledgerUpdatedAt?: string;
+  isCloudAdmin?: boolean;
 }
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({
@@ -34,17 +36,33 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   activeStudent,
   onStudentLogout,
   getStudentFallback,
+  ledgerUpdatedAt,
+  isCloudAdmin = false,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [receivedPersonName, setReceivedPersonName] = useState('');
+
+  useEffect(() => {
+    setReceivedPersonName('');
+  }, [activeStudent?.rollNumber]);
+
+  const localUpdatedAtMs = ledgerUpdatedAt
+    ? new Date(ledgerUpdatedAt).getTime() || 0
+    : 0;
 
   // Live refresh when an individual person is viewing their statement (prevents stale sessionStorage)
   useEffect(() => {
     if (!activeStudent?.rollNumber) return;
     const unsubscribe = subscribeSinglePublicRoll(activeStudent.rollNumber, (freshData) => {
+      const cloudTime = freshData.updatedAtMs || 0;
+      // Only overwrite local data if cloud admin is active or cloud timestamp is newer
+      if (!isCloudAdmin && localUpdatedAtMs > cloudTime) {
+        return;
+      }
       if (
         freshData.entries !== activeStudent.entries ||
         freshData.name !== activeStudent.name ||
@@ -61,6 +79,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     activeStudent?.name,
     activeStudent?.unitRate,
     activeStudent?.currencySymbol,
+    isCloudAdmin,
+    localUpdatedAtMs,
     onStudentLoginSuccess,
   ]);
 
@@ -95,6 +115,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const localFallback = getStudentFallback(roll);
 
     try {
       // 1. Try Cloud Firestore first with a 2.5s timeout so offline devices fall back fast
@@ -103,7 +124,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
       ]);
       if (cloudRoll) {
-        onStudentLoginSuccess(cloudRoll);
+        const cloudTime = cloudRoll.updatedAtMs || 0;
+        if (isCloudAdmin || cloudTime >= localUpdatedAtMs) {
+          onStudentLoginSuccess(cloudRoll);
+        } else {
+          onStudentLoginSuccess(localFallback);
+        }
         setError(null);
         return;
       }
@@ -130,13 +156,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         }
       }
 
-      // 3. Offline / static fallback
-      const fallbackStudent = getStudentFallback(roll);
-      onStudentLoginSuccess(fallbackStudent);
+      // 3. Offline / static / localStorage fallback
+      onStudentLoginSuccess(localFallback);
       setError(null);
     } catch {
-      const fallbackStudent = getStudentFallback(roll);
-      onStudentLoginSuccess(fallbackStudent);
+      onStudentLoginSuccess(localFallback);
       setError(null);
     } finally {
       clearTimeout(timeoutId);
@@ -164,11 +188,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
   };
 
+  const enteredPersonName = receivedPersonName.trim();
+  const displayPersonName = enteredPersonName || activeStudent?.name || '';
+
   const handleDownloadSlipPNG = () => {
     if (!activeStudent) return;
+    const slipName = enteredPersonName || activeStudent.name;
     const canvas = document.createElement('canvas');
     const width = 900;
-    const height = 660;
+    const height = 720;
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
@@ -185,22 +213,28 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     // Top dark header banner
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(24, 24, width - 48, 130);
+    ctx.fillRect(24, 24, width - 48, 148);
 
     ctx.fillStyle = '#a5b4fc';
     ctx.font = 'bold 16px monospace';
-    ctx.fillText('VARSHA PERSON REGISTER · VERIFIED SLIP', 56, 66);
+    ctx.fillText('VARSHA PERSON REGISTER · VERIFIED SLIP', 56, 62);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 38px sans-serif';
-    ctx.fillText(`Roll Number #${activeStudent.rollNumber}`, 56, 112);
+    ctx.font = 'bold 34px sans-serif';
+    ctx.fillText(`Roll Number #${activeStudent.rollNumber}`, 56, 106);
 
-    ctx.fillStyle = '#cbd5e1';
-    ctx.font = '16px sans-serif';
-    ctx.fillText(`${activeStudent.name} · Generated on ${new Date().toLocaleDateString()}`, 56, 140);
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(slipName, 56, 146, 540);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '15px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Generated on ${new Date().toLocaleDateString()}`, width - 56, 146);
+    ctx.textAlign = 'left';
 
     // Three summary boxes
-    const boxY = 184;
+    const boxY = 198;
     const boxW = 248;
     const boxH = 128;
 
@@ -252,62 +286,66 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     ctx.fillText(`${activeStudent.entries} × ${activeStudent.currencySymbol}${activeStudent.unitRate}`, box3X + 20, boxY + 112);
 
     // Receipt details section
-    const detY = 348;
+    const detY = 354;
     ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(56, detY, width - 112, 180);
+    ctx.fillRect(56, detY, width - 112, 236);
     ctx.strokeStyle = '#cbd5e1';
     ctx.setLineDash([6, 4]);
-    ctx.strokeRect(56, detY, width - 112, 180);
+    ctx.strokeRect(56, detY, width - 112, 236);
     ctx.setLineDash([]);
 
     ctx.fillStyle = '#475569';
     ctx.font = 'bold 15px sans-serif';
-    ctx.fillText('Item Description', 80, detY + 36);
-    ctx.fillText('Amount', width - 150, detY + 36);
+    ctx.fillText('Item Description', 80, detY + 34);
+    ctx.fillText('Amount', width - 150, detY + 34);
 
     ctx.strokeStyle = '#e2e8f0';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(80, detY + 52);
-    ctx.lineTo(width - 80, detY + 52);
+    ctx.moveTo(80, detY + 50);
+    ctx.lineTo(width - 80, detY + 50);
     ctx.stroke();
 
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(`Roll #${activeStudent.rollNumber} (${activeStudent.name})`, 80, detY + 88);
+    ctx.font = 'bold 23px sans-serif';
+    ctx.fillText(`Roll #${activeStudent.rollNumber} (${slipName})`, 80, detY + 86, width - 280);
     ctx.fillStyle = '#64748b';
     ctx.font = '15px monospace';
     ctx.fillText(
       `Tally count: ${activeStudent.entries} units @ ${activeStudent.currencySymbol}${activeStudent.unitRate} each`,
       80,
-      detY + 114
+      detY + 116
     );
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 21px sans-serif';
+    ctx.fillText(`Received Person Name: ${slipName}`, 80, detY + 150, width - 160);
+
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 20px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, width - 80, detY + 96);
+    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, width - 80, detY + 90);
 
     ctx.strokeStyle = '#cbd5e1';
     ctx.beginPath();
-    ctx.moveTo(80, detY + 130);
-    ctx.lineTo(width - 80, detY + 130);
+    ctx.moveTo(80, detY + 174);
+    ctx.lineTo(width - 80, detY + 174);
     ctx.stroke();
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#0f172a';
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('Total Payable / Calculated Balance', 80, detY + 162);
+    ctx.fillText('Total Payable / Calculated Balance', 80, detY + 210);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#059669';
     ctx.font = 'bold 24px monospace';
-    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, width - 80, detY + 162);
+    ctx.fillText(`${activeStudent.currencySymbol}${activeStudent.totalSum.toLocaleString()}`, width - 80, detY + 210);
     ctx.textAlign = 'left';
 
     // Footer timestamp
     ctx.fillStyle = '#94a3b8';
     ctx.font = '13px monospace';
-    ctx.fillText(`Varsha Ledger System · Roll #${activeStudent.rollNumber} · ${new Date().toLocaleString()}`, 56, height - 52);
+    ctx.fillText(`Varsha Ledger System · Roll #${activeStudent.rollNumber} · ${new Date().toLocaleString()}`, 56, height - 46);
 
     const url = canvas.toDataURL('image/png');
     const link = document.createElement('a');
@@ -337,8 +375,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
                 Roll Number #{activeStudent.rollNumber}
               </h2>
-              <p className="text-xs sm:text-sm text-slate-300 mt-1">
-                {activeStudent.name} · Individual Account Statement
+              <p className="text-xl sm:text-2xl font-extrabold text-white mt-1.5 tracking-tight">
+                {displayPersonName}
+              </p>
+              <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
+                Individual Account Statement
               </p>
             </div>
 
@@ -388,6 +429,36 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
           {/* Statement Content */}
           <div className="p-6 sm:p-8 space-y-6">
+            {/* Enter Received Person Name (Shown on Print & PNG Slip) */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 print:hidden">
+              <label
+                htmlFor="received-person-name"
+                className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+              >
+                Enter Received Person Name (Shown on Print Slip &amp; PNG)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="received-person-name"
+                  type="text"
+                  maxLength={80}
+                  value={receivedPersonName}
+                  onChange={(e) => setReceivedPersonName(e.target.value)}
+                  placeholder={`Enter your / received person name (default: ${activeStudent.name})`}
+                  className="flex-1 px-3.5 py-2.5 text-base sm:text-lg font-semibold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                />
+                {receivedPersonName && (
+                  <button
+                    type="button"
+                    onClick={() => setReceivedPersonName('')}
+                    className="px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Key Metric Highlights */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {/* Entries Count */}
@@ -456,13 +527,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   Amount
                 </span>
               </div>
-              <div className="py-3 flex items-center justify-between text-xs font-mono">
+              <div className="py-3 flex items-center justify-between gap-3 text-xs font-mono">
                 <div>
-                  <span className="font-sans font-medium text-slate-800 dark:text-slate-200">
-                    Roll #{activeStudent.rollNumber} ({activeStudent.name})
+                  <span className="font-sans text-base sm:text-xl font-bold text-slate-900 dark:text-white">
+                    Roll #{activeStudent.rollNumber} ({displayPersonName})
                   </span>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-xs text-slate-500 mt-0.5">
                     Tally count: {activeStudent.entries} units @ {activeStudent.currencySymbol}{activeStudent.unitRate} each
+                  </div>
+                  <div className="text-sm sm:text-lg text-slate-900 dark:text-slate-100 font-sans font-bold mt-1.5">
+                    Received Person Name: {displayPersonName}
                   </div>
                 </div>
                 <div className="text-right">

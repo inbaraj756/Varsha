@@ -382,6 +382,8 @@ export async function fetchSinglePublicRoll(rollNumber: number): Promise<Student
     );
     const title = sanitizeTitle(settingsData?.title ?? LEDGER_CONFIG.title ?? 'Varsha');
     const entriesCount = sanitizeEntriesCount(r.entries);
+    const updatedAtMs =
+      r.updatedAt instanceof Timestamp ? r.updatedAt.toMillis() : 0;
 
     return {
       rollNumber,
@@ -391,6 +393,7 @@ export async function fetchSinglePublicRoll(rollNumber: number): Promise<Student
       currencySymbol,
       totalSum: entriesCount * unitRate,
       title,
+      updatedAtMs,
     };
   } catch (error) {
     console.warn('Firestore single roll lookup fallback:', error);
@@ -406,7 +409,7 @@ export function subscribeSinglePublicRoll(
     return () => {};
   }
   const rollId = String(rollNumber);
-  let latestRoll: { name: string; entries: number } | null = null;
+  let latestRoll: { name: string; entries: number; updatedAtMs: number } | null = null;
   let latestSettings = {
     unitRate: sanitizeUnitRate(LEDGER_CONFIG.unitRate ?? 100),
     currencySymbol: sanitizeCurrency(LEDGER_CONFIG.currencySymbol ?? '₹'),
@@ -423,6 +426,7 @@ export function subscribeSinglePublicRoll(
       currencySymbol: latestSettings.currencySymbol,
       totalSum: latestRoll.entries * latestSettings.unitRate,
       title: latestSettings.title,
+      updatedAtMs: latestRoll.updatedAtMs,
     });
   };
 
@@ -434,6 +438,8 @@ export function subscribeSinglePublicRoll(
         latestRoll = {
           name: sanitizeName(r.name, rollNumber),
           entries: sanitizeEntriesCount(r.entries),
+          updatedAtMs:
+            r.updatedAt instanceof Timestamp ? r.updatedAt.toMillis() : 0,
         };
         emitIfReady();
       }

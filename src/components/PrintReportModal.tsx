@@ -20,8 +20,17 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
   isAdmin,
 }) => {
   const [printNotice, setPrintNotice] = useState<string | null>(null);
+  const [receivedPersonName, setReceivedPersonName] = useState('');
 
   if (!isOpen) return null;
+
+  const escapeHtml = (str: string) =>
+    str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
 
   const handlePrint = () => {
     setPrintNotice(null);
@@ -57,16 +66,18 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const trimmedRecipient = receivedPersonName.trim();
   const handleDownloadHTMLSlip = () => {
     const dateStr = new Date().toLocaleDateString();
+    const safeRecipient = trimmedRecipient ? escapeHtml(trimmedRecipient) : '';
     const rowsHtml = entries
       .map(
         (item) => `
       <tr style="${item.entries > 0 ? 'background:#f0fdf4;' : ''}">
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;font-weight:700;">#${item.rollNumber}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;">${item.name || `Roll ${item.rollNumber}`}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-family:monospace;">${item.entries}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-family:monospace;font-weight:700;">${
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-weight:700;">#${item.rollNumber}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:16px;font-weight:700;color:#0f172a;">${escapeHtml(item.name || `Roll ${item.rollNumber}`)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-family:monospace;">${item.entries}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-family:monospace;font-weight:700;">${
           isAdmin ? `${currencySymbol}${(item.entries * stats.unitRate).toLocaleString()}` : 'Protected'
         }</td>
       </tr>`
@@ -83,7 +94,11 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
   <div style="border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;">
     <div>
       <h1 style="margin:0;font-size:22px;">Varsha - Roll 301 to 400 Ledger Report</h1>
-      <p style="margin:4px 0 0;color:#64748b;font-size:12px;">Generated on ${dateStr} · 1 Entry = ${currencySymbol}${stats.unitRate}</p>
+      <p style="margin:4px 0 0;color:#64748b;font-size:12px;">Generated on ${dateStr} · 1 Entry = ${currencySymbol}${stats.unitRate}</p>${
+        safeRecipient
+          ? `<p style="margin:6px 0 0;color:#0f172a;font-size:17px;font-weight:700;">Received Person Name: ${safeRecipient}</p>`
+          : ''
+      }
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">
@@ -136,6 +151,11 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400 print:text-slate-600">
               Generated on {new Date().toLocaleDateString()} · 1 Entry = {currencySymbol}{stats.unitRate}
             </p>
+            {trimmedRecipient && (
+              <p className="text-base sm:text-lg font-bold text-slate-900 dark:text-white print:text-slate-900 mt-1">
+                Received Person Name: {trimmedRecipient}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 print:hidden">
             <button
@@ -185,6 +205,24 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
           </div>
         )}
 
+        <div className="mt-3 print:hidden">
+          <label
+            htmlFor="report-received-person"
+            className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1"
+          >
+            Received Person Name (Optional — shown on Print List &amp; HTML Slip)
+          </label>
+          <input
+            id="report-received-person"
+            type="text"
+            maxLength={80}
+            value={receivedPersonName}
+            onChange={(e) => setReceivedPersonName(e.target.value)}
+            placeholder="Enter received person name..."
+            className="w-full px-3.5 py-2 text-sm sm:text-base font-semibold bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
         {/* Printable Paper Area */}
         <div className="overflow-y-auto py-4 space-y-4 print:overflow-visible print:p-0 print:pt-4">
           {/* Summary Box */}
@@ -233,7 +271,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
                     <td className="py-1.5 px-3 font-bold text-slate-900 dark:text-slate-100 print:text-slate-900">
                       #{item.rollNumber}
                     </td>
-                    <td className="py-1.5 px-3 font-sans text-slate-800 dark:text-slate-200 print:text-slate-900">
+                    <td className="py-2 px-3 font-sans text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 print:text-slate-900">
                       {item.name || `Roll ${item.rollNumber}`}
                     </td>
                     <td className="py-1.5 px-3 text-right text-slate-900 dark:text-slate-100 print:text-slate-900 font-semibold">
