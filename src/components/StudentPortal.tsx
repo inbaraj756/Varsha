@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Lock,
   Eye,
@@ -15,7 +15,10 @@ import {
   Download,
 } from 'lucide-react';
 import { StudentData } from '../types.ts';
-import { fetchSinglePublicRoll } from '../services/firestoreLedger.ts';
+import {
+  fetchSinglePublicRoll,
+  subscribeSinglePublicRoll,
+} from '../services/firestoreLedger.ts';
 
 interface StudentPortalProps {
   onAdminClick: () => void;
@@ -37,6 +40,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Live refresh when an individual person is viewing their statement (prevents stale sessionStorage)
+  useEffect(() => {
+    if (!activeStudent?.rollNumber) return;
+    const unsubscribe = subscribeSinglePublicRoll(activeStudent.rollNumber, (freshData) => {
+      if (
+        freshData.entries !== activeStudent.entries ||
+        freshData.name !== activeStudent.name ||
+        freshData.unitRate !== activeStudent.unitRate ||
+        freshData.currencySymbol !== activeStudent.currencySymbol
+      ) {
+        onStudentLoginSuccess(freshData);
+      }
+    });
+    return () => unsubscribe();
+  }, [
+    activeStudent?.rollNumber,
+    activeStudent?.entries,
+    activeStudent?.name,
+    activeStudent?.unitRate,
+    activeStudent?.currencySymbol,
+    onStudentLoginSuccess,
+  ]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,8 +97,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
     try {
-      // 1. Try Cloud Firestore first so entries saved from any Admin mobile appear live
-      const cloudRoll = await fetchSinglePublicRoll(roll);
+      // 1. Try Cloud Firestore first with a 2.5s timeout so offline devices fall back fast
+      const cloudRoll = await Promise.race<StudentData | null>([
+        fetchSinglePublicRoll(roll),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+      ]);
       if (cloudRoll) {
         onStudentLoginSuccess(cloudRoll);
         setError(null);

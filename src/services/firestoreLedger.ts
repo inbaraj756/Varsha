@@ -228,6 +228,7 @@ export function subscribeAdminLedger(
   onError?: (err: Error) => void
 ): () => void {
   let seedAttempted = false;
+  let publicSyncChecked = false;
 
   const unsubRolls = onSnapshot(
     collection(db, 'rolls'),
@@ -274,6 +275,28 @@ export function subscribeAdminLedger(
             }
           );
         });
+
+        if (!publicSyncChecked) {
+          publicSyncChecked = true;
+          getDocFromServer(doc(db, 'publicRolls', String(START_ROLL)))
+            .then((pubSnap) => {
+              if (!pubSnap.exists()) {
+                const batch = writeBatch(db);
+                for (const item of completeEntries) {
+                  batch.set(doc(db, 'publicRolls', String(item.rollNumber)), {
+                    rollNumber: item.rollNumber,
+                    name: sanitizeName(item.name, item.rollNumber),
+                    entries: sanitizeEntriesCount(item.entries),
+                    updatedAt: serverTimestamp(),
+                  });
+                }
+                return batch.commit();
+              }
+            })
+            .catch(() => {
+              // ignore non-fatal public mirror check error
+            });
+        }
 
         onEntriesUpdate(completeEntries, latestUpdated || new Date().toISOString());
       }
@@ -328,23 +351,36 @@ export async function fetchSinglePublicRoll(rollNumber: number): Promise<Student
   if (rollNumber < START_ROLL || rollNumber > END_ROLL) return null;
   const rollId = String(rollNumber);
 
-  try {
-    const [rollSnap, settingsSnap] = await Promise.all([
-      getDocFromServer(doc(db, 'publicRolls', rollId)),
-      getDocFromServer(doc(db, 'settings', 'ledger')),
-    ]);
+  const readDocWithFallback = async (ref: ReturnType<typeof doc>) => {
+    try {
+      return await getDocFromServer(ref);
+    } catch {
+      return await getDoc(ref);
+    }
+  };
 
+  try {
+    const rollSnap = await readDocWithFallback(doc(db, 'publicRolls', rollId));
     if (!rollSnap.exists()) {
       return null;
     }
 
+    let settingsData: Record<string, unknown> | null = null;
+    try {
+      const settingsSnap = await readDocWithFallback(doc(db, 'settings', 'ledger'));
+      if (settingsSnap.exists()) {
+        settingsData = settingsSnap.data();
+      }
+    } catch {
+      // Fall back to default config if settings doc is missing/offline
+    }
+
     const r = rollSnap.data();
-    const s = settingsSnap.exists() ? settingsSnap.data() : null;
-    const unitRate = sanitizeUnitRate(s?.unitRate ?? LEDGER_CONFIG.unitRate ?? 100);
+    const unitRate = sanitizeUnitRate(settingsData?.unitRate ?? LEDGER_CONFIG.unitRate ?? 100);
     const currencySymbol = sanitizeCurrency(
-      s?.currencySymbol ?? LEDGER_CONFIG.currencySymbol ?? '₹'
+      settingsData?.currencySymbol ?? LEDGER_CONFIG.currencySymbol ?? '₹'
     );
-    const title = sanitizeTitle(s?.title ?? LEDGER_CONFIG.title ?? 'Varsha');
+    const title = sanitizeTitle(settingsData?.title ?? LEDGER_CONFIG.title ?? 'Varsha');
     const entriesCount = sanitizeEntriesCount(r.entries);
 
     return {
@@ -357,10 +393,78 @@ export async function fetchSinglePublicRoll(rollNumber: number): Promise<Student
       title,
     };
   } catch (error) {
-    // Fallback gracefully if offline or not yet seeded
     console.warn('Firestore single roll lookup fallback:', error);
     return null;
   }
+}
+
+export function subscribeSinglePublicRoll(
+  rollNumber: number,
+  onUpdate: (data: StudentData) => void
+): () => void {
+  if (rollNumber < START_ROLL || rollNumber > END_ROLL) {
+    return () => {};
+  }
+  const rollId = String(rollNumber);
+  let latestRoll: { name: string; entries: number } | null = null;
+  let latestSettings = {
+    unitRate: sanitizeUnitRate(LEDGER_CONFIG.unitRate ?? 100),
+    currencySymbol: sanitizeCurrency(LEDGER_CONFIG.currencySymbol ?? '₹'),
+    title: sanitizeTitle(LEDGER_CONFIG.title ?? 'Varsha'),
+  };
+
+  const emitIfReady = () => {
+    if (!latestRoll) return;
+    onUpdate({
+      rollNumber,
+      name: latestRoll.name,
+      entries: latestRoll.entries,
+      unitRate: latestSettings.unitRate,
+      currencySymbol: latestSettings.currencySymbol,
+      totalSum: latestRoll.entries * latestSettings.unitRate,
+      title: latestSettings.title,
+    });
+  };
+
+  const unsubRoll = onSnapshot(
+    doc(db, 'publicRolls', rollId),
+    (snap) => {
+      if (snap.exists()) {
+        const r = snap.data();
+        latestRoll = {
+          name: sanitizeName(r.name, rollNumber),
+          entries: sanitizeEntriesCount(r.entries),
+        };
+        emitIfReady();
+      }
+    },
+    (err) => {
+      console.warn(`Live roll subscription error for ${rollId}:`, err);
+    }
+  );
+
+  const unsubSettings = onSnapshot(
+    doc(db, 'settings', 'ledger'),
+    (snap) => {
+      if (snap.exists()) {
+        const s = snap.data();
+        latestSettings = {
+          unitRate: sanitizeUnitRate(s.unitRate),
+          currencySymbol: sanitizeCurrency(s.currencySymbol),
+          title: sanitizeTitle(s.title),
+        };
+        emitIfReady();
+      }
+    },
+    (err) => {
+      console.warn('Live settings subscription error:', err);
+    }
+  );
+
+  return () => {
+    unsubRoll();
+    unsubSettings();
+  };
 }
 
 export async function listCoAdmins(): Promise<CloudAdminRecord[]> {

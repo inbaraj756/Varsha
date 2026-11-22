@@ -505,14 +505,14 @@ export default function App() {
     sessionStorage.removeItem(ADMIN_STORAGE_KEY);
   };
 
-  const handleStudentLoginSuccess = (student: StudentData) => {
+  const handleStudentLoginSuccess = useCallback((student: StudentData) => {
     setActiveStudent(student);
     try {
       sessionStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(student));
     } catch {
       // ignore
     }
-  };
+  }, []);
 
   const handleStudentLogout = () => {
     setActiveStudent(null);

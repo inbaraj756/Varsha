@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { LEDGER_CONFIG, INITIAL_LEDGER_ENTRIES } from './src/data/ledgerData.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,27 +27,33 @@ const START_ROLL = 301;
 const END_ROLL = 400;
 const TOTAL_ROLLS = 100;
 
+function buildSeedEntries() {
+  const byRoll = new Map(INITIAL_LEDGER_ENTRIES.map((e) => [e.rollNumber, e]));
+  return Array.from({ length: TOTAL_ROLLS }, (_, i) => {
+    const roll = START_ROLL + i;
+    const found = byRoll.get(roll);
+    return {
+      rollNumber: roll,
+      name: found?.name || `Roll ${roll}`,
+      entries: Number(found?.entries) || 0,
+      status: found?.status || 'unpaid',
+      notes: found?.notes || '',
+    };
+  });
+}
+
 // Ensure data file exists
 function ensureDataFile() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(DATA_FILE)) {
-    const initialEntries = Array.from({ length: TOTAL_ROLLS }, (_, i) => {
-      const roll = START_ROLL + i;
-      return {
-        rollNumber: roll,
-        name: `Roll ${roll}`,
-        entries: 0,
-        status: 'unpaid',
-        notes: '',
-      };
-    });
+    const initialEntries = buildSeedEntries();
     const initialData = {
-      unitRate: 100,
-      currencySymbol: '₹',
-      title: 'Varsha',
-      updatedAt: new Date().toISOString(),
+      unitRate: LEDGER_CONFIG.unitRate || 100,
+      currencySymbol: LEDGER_CONFIG.currencySymbol || '₹',
+      title: LEDGER_CONFIG.title || 'Varsha',
+      updatedAt: LEDGER_CONFIG.updatedAt || new Date().toISOString(),
       entries: initialEntries,
     };
     fs.writeFileSync(DATA_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
@@ -58,22 +65,17 @@ function readLedger() {
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf-8');
     const data = JSON.parse(raw);
-    
+
     // Safety check: ensure 100 roll numbers from 301 to 400 exist
     if (!Array.isArray(data.entries) || data.entries.length < TOTAL_ROLLS || data.entries[0]?.rollNumber < START_ROLL) {
+      const seedByRoll = new Map(buildSeedEntries().map((e) => [e.rollNumber, e]));
       const existingMap = new Map(data.entries?.map((e: any) => [e.rollNumber, e]) || []);
       const completeEntries = Array.from({ length: TOTAL_ROLLS }, (_, i) => {
         const roll = START_ROLL + i;
-        return existingMap.get(roll) || {
-          rollNumber: roll,
-          name: `Roll ${roll}`,
-          entries: 0,
-          status: 'unpaid',
-          notes: '',
-        };
+        return existingMap.get(roll) || seedByRoll.get(roll);
       });
       data.entries = completeEntries;
-      data.unitRate = data.unitRate || 100;
+      data.unitRate = data.unitRate || LEDGER_CONFIG.unitRate || 100;
       data.title = 'Varsha';
       fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
     }
