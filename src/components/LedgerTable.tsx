@@ -6,6 +6,9 @@ import {
   Lock,
   RotateCcw,
   Sparkles,
+  Save,
+  Code2,
+  CheckCircle2,
 } from 'lucide-react';
 import { RollEntry } from '../types.ts';
 
@@ -19,6 +22,11 @@ interface LedgerTableProps {
   selectedRoll: number | null;
   activeTab: 'all' | 'active' | 'zero';
   onSelectTab: (tab: 'all' | 'active' | 'zero') => void;
+  hasUnsavedChanges: boolean;
+  dirtyRolls: Set<number>;
+  saveStatus: 'saved' | 'saving' | 'error' | 'unsaved';
+  onSaveAll: () => void;
+  onOpenCodeModal: () => void;
 }
 
 export const LedgerTable: React.FC<LedgerTableProps> = ({
@@ -30,6 +38,11 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
   onUpdateEntry,
   selectedRoll,
   activeTab,
+  hasUnsavedChanges,
+  dirtyRolls,
+  saveStatus,
+  onSaveAll,
+  onOpenCodeModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [rangeFilter, setRangeFilter] = useState<'all' | '301-325' | '326-350' | '351-375' | '376-400'>('all');
@@ -139,16 +152,67 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
           </button>
         </div>
       ) : (
-        <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border-b border-emerald-200/80 dark:border-emerald-900/40 px-4 py-2 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-200">
+        <div
+          className={`border-b px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs transition-colors ${
+            hasUnsavedChanges
+              ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+              : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-200'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <Sparkles
+              className={`w-4 h-4 shrink-0 ${
+                hasUnsavedChanges
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              }`}
+            />
             <span>
-              <strong>Admin Mode Active:</strong> You have full permission to add/decrement entries and edit names.
+              {hasUnsavedChanges ? (
+                <>
+                  <strong>Unsaved Changes ({dirtyRolls.size} roll{dirtyRolls.size === 1 ? '' : 's'}):</strong>{' '}
+                  Click <strong>Save Changes</strong> when finished entering to update the codebase &amp; server.
+                </>
+              ) : (
+                <>
+                  <strong>Admin Mode Active:</strong> Edit names or entries below, or use Code Entry, then click Save.
+                </>
+              )}
             </span>
           </div>
-          <span className="font-mono text-[11px] bg-emerald-200/60 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-200">
-            Auto-Saving to Server
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onOpenCodeModal}
+              className="px-2.5 py-1 text-[11px] font-semibold bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              <Code2 className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Code Entry</span>
+            </button>
+            <button
+              type="button"
+              onClick={onSaveAll}
+              disabled={saveStatus === 'saving'}
+              className={`px-3 py-1 text-[11px] font-bold rounded-md transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 ${
+                hasUnsavedChanges
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse'
+                  : 'bg-emerald-700/90 hover:bg-emerald-800 text-white'
+              }`}
+            >
+              {hasUnsavedChanges || saveStatus === 'saving' ? (
+                <Save className="w-3.5 h-3.5" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {saveStatus === 'saving'
+                  ? 'Saving...'
+                  : hasUnsavedChanges
+                  ? 'Save Changes'
+                  : 'Saved to Codebase'}
+              </span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -209,7 +273,11 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
                             onUpdateEntry(item.rollNumber, { name: e.target.value })
                           }
                           placeholder={`Roll ${item.rollNumber}`}
-                          className="w-full px-2.5 py-1 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-slate-900 dark:focus:ring-slate-400"
+                          className={`w-full px-2.5 py-1 text-xs bg-slate-50 dark:bg-slate-800 border rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-slate-900 dark:focus:ring-slate-400 ${
+                            dirtyRolls.has(item.rollNumber)
+                              ? 'border-amber-400 dark:border-amber-600'
+                              : 'border-slate-200 dark:border-slate-700'
+                          }`}
                         />
                       ) : (
                         <span className="font-medium text-slate-800 dark:text-slate-200">
@@ -309,19 +377,32 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
                     {/* Action */}
                     <td className="py-3 px-4 text-center">
                       {isAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onUpdateEntry(item.rollNumber, {
-                              entries: 0,
-                            })
-                          }
-                          disabled={item.entries === 0}
-                          className="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                          title="Reset entries for this roll number"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="inline-flex items-center justify-center gap-1">
+                          {dirtyRolls.has(item.rollNumber) && (
+                            <button
+                              type="button"
+                              onClick={onSaveAll}
+                              className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Save changes to codebase & server"
+                            >
+                              <Save className="w-3 h-3" />
+                              <span>Save</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateEntry(item.rollNumber, {
+                                entries: 0,
+                              })
+                            }
+                            disabled={item.entries === 0}
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                            title="Reset entries for this roll number"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
@@ -347,7 +428,7 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
           Showing <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{filteredEntries.length}</span> of 100 Roll Numbers (301–400)
         </div>
         {isAdmin ? (
-          <div className="flex items-center gap-6 font-mono tabular-nums">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-mono tabular-nums">
             <div>
               <span className="text-slate-500 dark:text-slate-400 font-sans mr-1.5">Filtered Entries:</span>
               <span className="font-bold text-slate-900 dark:text-slate-100">
@@ -361,6 +442,16 @@ export const LedgerTable: React.FC<LedgerTableProps> = ({
                 {(filteredEntries.reduce((acc, curr) => acc + curr.entries, 0) * unitRate).toLocaleString()}
               </span>
             </div>
+            {hasUnsavedChanges && (
+              <button
+                type="button"
+                onClick={onSaveAll}
+                className="px-3.5 py-1.5 font-sans text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Save All Changes</span>
+              </button>
+            )}
           </div>
         ) : (
           <div

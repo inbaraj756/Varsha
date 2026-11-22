@@ -6,9 +6,11 @@ import { LedgerTable } from './components/LedgerTable.tsx';
 import { AdminPasswordModal } from './components/AdminPasswordModal.tsx';
 import { BulkActionModal } from './components/BulkActionModal.tsx';
 import { PrintReportModal } from './components/PrintReportModal.tsx';
+import { CodeEntryModal } from './components/CodeEntryModal.tsx';
 import { StudentPortal } from './components/StudentPortal.tsx';
+import { LEDGER_CONFIG, INITIAL_LEDGER_ENTRIES } from './data/ledgerData.ts';
 import { RollEntry, LedgerData, LedgerStats, StudentData } from './types.ts';
-import { ShieldAlert, RefreshCw, CheckCircle2, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { ShieldAlert, RefreshCw, CheckCircle2, ShieldCheck, ArrowLeft, Save, Code2 } from 'lucide-react';
 
 const ADMIN_STORAGE_KEY = 'roll70_admin_token';
 const STUDENT_STORAGE_KEY = 'varsha_student_session';
@@ -18,21 +20,15 @@ const EXPECTED_PASSWORD = 'ME';
 const START_ROLL = 301;
 const TOTAL_ROLLS = 100; // Rolls 301 to 400
 
-const USER_ENTRIES_COUNTS = [
-  10, 5, 10, 9, 20, 20, 5, 9, 9, 10, 6, 9, 6, 10, 9, 10, 9, 10, 10, 10,
-  10, 9, 10, 10, 8, 7, 10, 10, 6, 5, 6, 6, 10, 8, 10, 10, 10, 10, 9, 9,
-  10, 9, 9, 9, 9, 8, 8, 10, 4, 10, 10, 10, 10, 10, 8, 7, 7, 10, 10, 10,
-  10, 7, 3, 10, 8, 9, 9, 10, 6, 2, 2
-];
-
 function createInitialRolls(): RollEntry[] {
+  const byRoll = new Map(INITIAL_LEDGER_ENTRIES.map((item) => [item.rollNumber, item]));
   return Array.from({ length: TOTAL_ROLLS }, (_, i) => {
     const roll = START_ROLL + i;
-    const count = i < USER_ENTRIES_COUNTS.length ? USER_ENTRIES_COUNTS[i] : 0;
+    const found = byRoll.get(roll);
     return {
       rollNumber: roll,
-      name: `Roll ${roll}`,
-      entries: count,
+      name: found?.name || `Roll ${roll}`,
+      entries: Number(found?.entries) || 0,
       status: 'unpaid',
       notes: '',
     };
@@ -101,15 +97,18 @@ export default function App() {
       const saved = localStorage.getItem(LEDGER_LOCAL_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const localTime = new Date(parsed.updatedAt || 0).getTime();
+        const codeTime = new Date(LEDGER_CONFIG.updatedAt || 0).getTime();
         if (
           Array.isArray(parsed.entries) &&
           parsed.entries.length === TOTAL_ROLLS &&
-          parsed.entries[0]?.rollNumber === START_ROLL
+          parsed.entries[0]?.rollNumber === START_ROLL &&
+          localTime >= codeTime
         ) {
-          const unitRate = parsed.unitRate || 100;
+          const unitRate = parsed.unitRate || LEDGER_CONFIG.unitRate || 100;
           return {
             ...parsed,
-            title: 'Varsha',
+            title: LEDGER_CONFIG.title || 'Varsha',
             unitRate,
             stats: calculateStats(parsed.entries, unitRate),
           };
@@ -119,13 +118,14 @@ export default function App() {
       // ignore localStorage errors
     }
     const initialRolls = createInitialRolls();
+    const unitRate = LEDGER_CONFIG.unitRate || 100;
     return {
-      unitRate: 100,
-      currencySymbol: '₹',
-      title: 'Varsha',
-      updatedAt: new Date().toISOString(),
+      unitRate,
+      currencySymbol: LEDGER_CONFIG.currencySymbol || '₹',
+      title: LEDGER_CONFIG.title || 'Varsha',
+      updatedAt: LEDGER_CONFIG.updatedAt || new Date().toISOString(),
       entries: initialRolls,
-      stats: calculateStats(initialRolls, 100),
+      stats: calculateStats(initialRolls, unitRate),
     };
   });
 
@@ -134,7 +134,11 @@ export default function App() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false);
+  const [dirtyRolls, setDirtyRolls] = useState<Set<number>>(new Set());
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | 'unsaved'>('saved');
+
+  const hasUnsavedChanges = dirtyRolls.size > 0;
 
   // Dark mode
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -162,10 +166,13 @@ export default function App() {
       const saved = localStorage.getItem(LEDGER_LOCAL_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const localTime = new Date(parsed.updatedAt || 0).getTime();
+        const codeTime = new Date(LEDGER_CONFIG.updatedAt || 0).getTime();
         if (
           Array.isArray(parsed.entries) &&
           parsed.entries.length === TOTAL_ROLLS &&
-          parsed.entries[0]?.rollNumber === START_ROLL
+          parsed.entries[0]?.rollNumber === START_ROLL &&
+          localTime >= codeTime
         ) {
           const unitRate = parsed.unitRate || 100;
           const stats = calculateStats(parsed.entries, unitRate);
@@ -211,9 +218,7 @@ export default function App() {
     fetchLedger();
   }, [fetchLedger]);
 
-  // Save changes to backend server
-  const saveQueueRef = useRef<NodeJS.Timeout | null>(null);
-
+  // Save changes to backend server & codebase
   const syncWithServer = useCallback(
     async (updatedLedger: LedgerData, currentPassword: string) => {
       setSaveStatus('saving');
@@ -234,6 +239,7 @@ export default function App() {
         if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           setSaveStatus('saved');
+          setDirtyRolls(new Set());
           try {
             localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(data));
           } catch {
@@ -249,6 +255,7 @@ export default function App() {
             // ignore
           }
           setSaveStatus('saved');
+          setDirtyRolls(new Set());
         }
       } catch {
         try {
@@ -257,6 +264,7 @@ export default function App() {
           // ignore
         }
         setSaveStatus('saved');
+        setDirtyRolls(new Set());
       }
     },
     []
@@ -335,7 +343,7 @@ export default function App() {
     [ledger]
   );
 
-  // Update a single entry (Admin only)
+  // Update a single entry locally (explicit Save commits to codebase & server)
   const handleUpdateEntry = (rollNumber: number, partial: Partial<RollEntry>) => {
     if (!isAdmin) {
       setIsPasswordModalOpen(true);
@@ -351,21 +359,80 @@ export default function App() {
       });
 
       const updatedStats = calculateStats(newEntries, prev.unitRate);
-      const updated: LedgerData = {
+      return {
         ...prev,
         entries: newEntries,
         stats: updatedStats,
         updatedAt: new Date().toISOString(),
       };
-
-      if (saveQueueRef.current) clearTimeout(saveQueueRef.current);
-      saveQueueRef.current = setTimeout(() => {
-        syncWithServer(updated, adminPassword);
-      }, 300);
-
-      return updated;
     });
+
+    setDirtyRolls((prev) => {
+      const next = new Set(prev);
+      next.add(rollNumber);
+      return next;
+    });
+    setSaveStatus('unsaved');
   };
+
+  // Explicit Save button handler: normalizes blank names & writes to data/ledger.json + src/data/ledgerData.ts
+  const handleSaveAll = useCallback(async () => {
+    if (!isAdmin) {
+      setIsPasswordModalOpen(true);
+      return;
+    }
+
+    const normalizedEntries = ledger.entries.map((item) => ({
+      ...item,
+      name: item.name && item.name.trim() ? item.name.trim() : `Roll ${item.rollNumber}`,
+      entries: Math.max(0, Number(item.entries) || 0),
+    }));
+
+    const updatedStats = calculateStats(normalizedEntries, ledger.unitRate);
+    const updated: LedgerData = {
+      ...ledger,
+      entries: normalizedEntries,
+      stats: updatedStats,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setLedger(updated);
+    await syncWithServer(updated, adminPassword);
+  }, [isAdmin, ledger, adminPassword, syncWithServer]);
+
+  // Apply bulk entries from Code Entry modal and save immediately
+  const handleApplyCodeEntries = useCallback(
+    async (nextEntries: RollEntry[]) => {
+      const normalized = nextEntries.map((item) => ({
+        ...item,
+        name: item.name && item.name.trim() ? item.name.trim() : `Roll ${item.rollNumber}`,
+        entries: Math.max(0, Number(item.entries) || 0),
+      }));
+      const updatedStats = calculateStats(normalized, ledger.unitRate);
+      const updated: LedgerData = {
+        ...ledger,
+        entries: normalized,
+        stats: updatedStats,
+        updatedAt: new Date().toISOString(),
+      };
+      setLedger(updated);
+      await syncWithServer(updated, adminPassword);
+    },
+    [ledger, adminPassword, syncWithServer]
+  );
+
+  // Ctrl+S / Cmd+S shortcut in Admin Mode
+  useEffect(() => {
+    if (!isAdmin) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveAll();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isAdmin, handleSaveAll]);
 
   // Quick increment from roll grid (Admin only)
   const handleQuickAdd = (rollNumber: number, delta: number) => {
@@ -477,6 +544,9 @@ export default function App() {
         onLockAdmin={handleLockAdmin}
         onOpenBulkModal={() => setIsBulkModalOpen(true)}
         onOpenPrintModal={() => setIsPrintModalOpen(true)}
+        onOpenCodeModal={() => setIsCodeModalOpen(true)}
+        onSaveAll={handleSaveAll}
+        hasUnsavedChanges={hasUnsavedChanges}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode(!darkMode)}
         activeTab={activeTab}
@@ -501,37 +571,67 @@ export default function App() {
                   </span>
                   <span className="text-xs text-slate-400">·</span>
                   <span className="text-xs text-slate-500 font-mono">
-                    Full Access Granted
+                    Direct Codebase Sync Active
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
                   Varsha — Administrator Register
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Complete view of all 100 Roll Numbers (301 to 400) · 1 Entry = {ledger.currencySymbol}{ledger.unitRate} · Full Grand Calculations
+                  Complete view of all 100 Roll Numbers (301 to 400) · 1 Entry = {ledger.currencySymbol}{ledger.unitRate} · Edit &amp; Save directly to codebase
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 {/* Real-time Save status indicator */}
                 <div className="flex items-center gap-1.5 text-xs font-mono text-slate-500 dark:text-slate-400">
                   {saveStatus === 'saving' ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                      <span>Syncing...</span>
+                      <span>Saving...</span>
+                    </>
+                  ) : hasUnsavedChanges || saveStatus === 'unsaved' ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
+                      <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                        Unsaved ({dirtyRolls.size})
+                      </span>
                     </>
                   ) : saveStatus === 'saved' ? (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Saved</span>
+                      <span>Saved to Codebase</span>
                     </>
                   ) : (
                     <>
                       <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
-                      <span>Sync offline</span>
+                      <span>Save Error</span>
                     </>
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCodeModalOpen(true)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Code2 className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Code Entry</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveAll}
+                  disabled={saveStatus === 'saving'}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 ${
+                    hasUnsavedChanges
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                  }`}
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{saveStatus === 'saving' ? 'Saving...' : 'Save Changes'}</span>
+                </button>
 
                 <button
                   type="button"
@@ -572,6 +672,11 @@ export default function App() {
               selectedRoll={selectedRoll}
               activeTab={activeTab}
               onSelectTab={setActiveTab}
+              hasUnsavedChanges={hasUnsavedChanges}
+              dirtyRolls={dirtyRolls}
+              saveStatus={saveStatus}
+              onSaveAll={handleSaveAll}
+              onOpenCodeModal={() => setIsCodeModalOpen(true)}
             />
           </div>
         ) : (
@@ -641,6 +746,15 @@ export default function App() {
         stats={currentStats}
         currencySymbol={ledger.currencySymbol}
         isAdmin={isAdmin}
+      />
+
+      <CodeEntryModal
+        isOpen={isCodeModalOpen}
+        onClose={() => setIsCodeModalOpen(false)}
+        entries={ledger.entries}
+        unitRate={ledger.unitRate}
+        currencySymbol={ledger.currencySymbol}
+        onApplyEntries={handleApplyCodeEntries}
       />
     </div>
   );

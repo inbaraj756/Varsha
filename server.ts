@@ -18,6 +18,7 @@ function checkAdminAuth(pass?: string): boolean {
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'ledger.json');
+const CODE_DATA_FILE = path.join(__dirname, 'src', 'data', 'ledgerData.ts');
 
 app.use(express.json());
 
@@ -83,10 +84,49 @@ function readLedger() {
   }
 }
 
+function syncCodebaseFile(data: any) {
+  try {
+    const codeDir = path.dirname(CODE_DATA_FILE);
+    if (!fs.existsSync(codeDir)) {
+      fs.mkdirSync(codeDir, { recursive: true });
+    }
+    const entriesLines = (data.entries || [])
+      .map((e: any) => {
+        const roll = Number(e.rollNumber);
+        const safeName = JSON.stringify(
+          typeof e.name === 'string' && e.name.trim() ? e.name.trim() : `Roll ${roll}`
+        );
+        const count = Math.max(0, parseInt(e.entries, 10) || 0);
+        return `  { rollNumber: ${roll}, name: ${safeName}, entries: ${count} },`;
+      })
+      .join('\n');
+
+    const content = `import { RollEntry } from '../types.ts';
+
+export const LEDGER_CONFIG = {
+  title: ${JSON.stringify(data.title || 'Varsha')},
+  unitRate: ${Number(data.unitRate) || 100},
+  currencySymbol: ${JSON.stringify(data.currencySymbol || '₹')},
+  updatedAt: ${JSON.stringify(data.updatedAt)},
+};
+
+export const INITIAL_LEDGER_ENTRIES: RollEntry[] = [
+${entriesLines}
+];
+`;
+    fs.writeFileSync(CODE_DATA_FILE, content, 'utf-8');
+    return true;
+  } catch (err) {
+    console.error('Error syncing codebase ledgerData.ts:', err);
+    return false;
+  }
+}
+
 function writeLedger(data: any) {
   ensureDataFile();
   data.updatedAt = new Date().toISOString();
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  syncCodebaseFile(data);
   return data;
 }
 
@@ -229,13 +269,16 @@ app.put('/api/ledger', (req, res) => {
 
   if (Array.isArray(entries)) {
     // Merge or replace entries keeping rollNumber valid 301-400
-    current.entries = entries.map((e: any, idx: number) => ({
-      rollNumber: Number(e.rollNumber) || (START_ROLL + idx),
-      name: typeof e.name === 'string' && e.name.trim() ? e.name : `Roll ${START_ROLL + idx}`,
-      entries: Math.max(0, parseInt(e.entries, 10) || 0),
-      status: e.status === 'paid' ? 'paid' : (e.status === 'pending' ? 'pending' : 'unpaid'),
-      notes: typeof e.notes === 'string' ? e.notes : '',
-    }));
+    current.entries = entries.map((e: any, idx: number) => {
+      const roll = Number(e.rollNumber) || (START_ROLL + idx);
+      return {
+        rollNumber: roll,
+        name: typeof e.name === 'string' && e.name.trim() ? e.name.trim() : `Roll ${roll}`,
+        entries: Math.max(0, parseInt(e.entries, 10) || 0),
+        status: e.status === 'paid' ? 'paid' : (e.status === 'pending' ? 'pending' : 'unpaid'),
+        notes: typeof e.notes === 'string' ? e.notes : '',
+      };
+    });
   }
 
   if (typeof unitRate === 'number' && unitRate >= 0) {
@@ -250,7 +293,7 @@ app.put('/api/ledger', (req, res) => {
 
   const saved = writeLedger(current);
   const stats = computeStats(saved);
-  res.json({ success: true, ...saved, stats });
+  res.json({ success: true, codeSynced: true, ...saved, stats });
 });
 
 app.post('/api/ledger/entry', (req, res) => {
