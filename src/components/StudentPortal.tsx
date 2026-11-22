@@ -15,6 +15,7 @@ import {
   Download,
 } from 'lucide-react';
 import { StudentData } from '../types.ts';
+import { fetchSinglePublicRoll } from '../services/firestoreLedger.ts';
 
 interface StudentPortalProps {
   onAdminClick: () => void;
@@ -67,9 +68,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setLoading(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
 
     try {
+      // 1. Try Cloud Firestore first so entries saved from any Admin mobile appear live
+      const cloudRoll = await fetchSinglePublicRoll(roll);
+      if (cloudRoll) {
+        onStudentLoginSuccess(cloudRoll);
+        setError(null);
+        return;
+      }
+
+      // 2. Fall back to backend API if running with Node server
       const res = await fetch('/api/auth/student-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,12 +101,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         }
       }
 
-      // Fallback when deployed as static site (e.g. Vercel) without Node API server
+      // 3. Offline / static fallback
       const fallbackStudent = getStudentFallback(roll);
       onStudentLoginSuccess(fallbackStudent);
       setError(null);
     } catch {
-      // Fallback when offline, timed out, or backend unreachable
       const fallbackStudent = getStudentFallback(roll);
       onStudentLoginSuccess(fallbackStudent);
       setError(null);
@@ -151,7 +160,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     ctx.fillStyle = '#a5b4fc';
     ctx.font = 'bold 16px monospace';
-    ctx.fillText('VARSHA STUDENT REGISTER · VERIFIED SLIP', 56, 66);
+    ctx.fillText('VARSHA PERSON REGISTER · VERIFIED SLIP', 56, 66);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 38px sans-serif';
@@ -290,7 +299,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs uppercase tracking-widest font-mono text-indigo-300 font-semibold">
-                  Varsha Student Register
+                  Varsha Person Register
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Verified
@@ -448,7 +457,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <Shield className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
               <div>
                 <strong className="text-slate-800 dark:text-slate-200">Varsha Privacy Shield Active:</strong>{' '}
-                Only your personal calculated sum ({activeStudent.currencySymbol}{activeStudent.totalSum.toLocaleString()}) and entry count ({activeStudent.entries}) are shown here. Other roll numbers and the grand class total are strictly confidential and accessible exclusively by the administrator.
+                Only your personal calculated sum ({activeStudent.currencySymbol}{activeStudent.totalSum.toLocaleString()}) and entry count ({activeStudent.entries}) are shown here. Other roll numbers and the grand total are strictly confidential and accessible exclusively by the administrator.
               </div>
             </div>
 
@@ -487,7 +496,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <div className="flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                 <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Student Roll Number Login
+                  Person Roll Number Login
                 </h2>
               </div>
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">

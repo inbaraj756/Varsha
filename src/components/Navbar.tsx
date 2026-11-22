@@ -92,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           ) : (
             <div className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Student Portal: Username &amp; Password = Roll #
+              Person Portal: Username &amp; Password = Roll #
             </div>
           )}
 

@@ -125,8 +125,8 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
           )}
 
           <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-            <span className="font-medium text-slate-700 dark:text-slate-300">Protected Mode:</span>{' '}
-            Entries, calculations, and roll numbers are read-only for public viewers. Only authorized administrator can record entries and modify sum.
+            <span className="font-medium text-slate-700 dark:text-slate-300">Admin &amp; Cloud Sync:</span>{' '}
+            After unlocking with the admin password, connect Google Cloud Sync inside Admin Mode so saved entries appear live on all mobile phones.
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-2">

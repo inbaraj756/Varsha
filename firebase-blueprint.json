@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "RollEntry": {
+      "title": "RollEntry",
+      "description": "Administrator-only complete ledger roll record (301 to 400) storing entry count, display name, payment status, and private admin notes.",
+      "type": "object",
+      "properties": {
+        "rollNumber": {
+          "type": "integer",
+          "description": "Roll number between 301 and 400."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name for this person.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "entries": {
+          "type": "integer",
+          "description": "Number of recorded entries for this roll."
+        },
+        "status": {
+          "type": "string",
+          "description": "Payment status for this roll.",
+          "enum": ["paid", "unpaid", "pending"]
+        },
+        "notes": {
+          "type": "string",
+          "description": "Private administrator notes.",
+          "maxLength": 200
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID of the administrator who last updated this entry.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last update."
+        }
+      },
+      "required": ["rollNumber", "name", "entries", "status", "notes", "updatedBy", "updatedAt"]
+    },
+    "PublicRollSlip": {
+      "title": "PublicRollSlip",
+      "description": "Minimal non-PII single-roll summary (rollNumber, name, entries, updatedAt) for individual Person Login slip lookup.",
+      "type": "object",
+      "properties": {
+        "rollNumber": {
+          "type": "integer",
+          "description": "Roll number between 301 and 400."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name for this roll.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "entries": {
+          "type": "integer",
+          "description": "Number of recorded entries for this roll."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last update."
+        }
+      },
+      "required": ["rollNumber", "name", "entries", "updatedAt"]
+    },
+    "LedgerSettings": {
+      "title": "LedgerSettings",
+      "description": "Global ledger configuration including unit rate, currency symbol, and register title.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Register title.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "unitRate": {
+          "type": "number",
+          "description": "Monetary value per entry."
+        },
+        "currencySymbol": {
+          "type": "string",
+          "description": "Currency symbol displayed next to calculated sums.",
+          "minLength": 1,
+          "maxLength": 5
+        },
+        "totalRolls": {
+          "type": "integer",
+          "description": "Total number of rolls in the register (100)."
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID of the administrator who last updated settings.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last update."
+        }
+      },
+      "required": ["title", "unitRate", "currencySymbol", "totalRolls", "updatedBy", "updatedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized co-administrator record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the authorized admin.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "description": "Verified email address of the co-administrator.",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "addedBy": {
+          "type": "string",
+          "description": "UID of the admin who granted access.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        }
+      },
+      "required": ["uid", "email", "addedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/rolls/{rollId}": {
+      "schema": { "$ref": "#/entities/RollEntry" },
+      "description": "Full roll entries 301 through 400 (admin-only read, list, create, update, delete)."
+    },
+    "/publicRolls/{rollId}": {
+      "schema": { "$ref": "#/entities/PublicRollSlip" },
+      "description": "Public single-roll slip lookup (get by exact rollId 301-400 only; list strictly forbidden; writes admin-only)."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/LedgerSettings" },
+      "description": "Global register settings (unitRate, currencySymbol, title) stored at /settings/ledger."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Additional authorized administrator accounts granted by an existing admin."
+    }
+  }
+}

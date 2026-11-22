@@ -7,10 +7,29 @@ import { AdminPasswordModal } from './components/AdminPasswordModal.tsx';
 import { BulkActionModal } from './components/BulkActionModal.tsx';
 import { PrintReportModal } from './components/PrintReportModal.tsx';
 import { CodeEntryModal } from './components/CodeEntryModal.tsx';
+import { CloudSyncModal } from './components/CloudSyncModal.tsx';
 import { StudentPortal } from './components/StudentPortal.tsx';
 import { LEDGER_CONFIG, INITIAL_LEDGER_ENTRIES } from './data/ledgerData.ts';
 import { RollEntry, LedgerData, LedgerStats, StudentData } from './types.ts';
-import { ShieldAlert, RefreshCw, CheckCircle2, ShieldCheck, ArrowLeft, Save, Code2 } from 'lucide-react';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { auth, signInWithGoogle, signOutFirebase } from './firebase.ts';
+import {
+  checkIsCloudAdmin,
+  subscribeAdminLedger,
+  seedInitialLedgerToFirestore,
+  saveLedgerChangesToFirestore,
+} from './services/firestoreLedger.ts';
+import {
+  ShieldAlert,
+  RefreshCw,
+  CheckCircle2,
+  ShieldCheck,
+  ArrowLeft,
+  Save,
+  Code2,
+  Cloud,
+  CloudOff,
+} from 'lucide-react';
 
 const ADMIN_STORAGE_KEY = 'roll70_admin_token';
 const STUDENT_STORAGE_KEY = 'varsha_student_session';
@@ -135,8 +154,23 @@ export default function App() {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isCodeModalOpen, setIsCodeModalOpen] = useState(false);
+  const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
   const [dirtyRolls, setDirtyRolls] = useState<Set<number>>(new Set());
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | 'unsaved'>('saved');
+
+  // Firebase Cloud Sync State
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [isCloudAdmin, setIsCloudAdmin] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<
+    'disconnected' | 'connecting' | 'synced' | 'unauthorized' | 'error'
+  >('disconnected');
+  const [cloudError, setCloudError] = useState<string | null>(null);
+
+  const ledgerRef = useRef<LedgerData>(ledger);
+  useEffect(() => {
+    ledgerRef.current = ledger;
+  }, [ledger]);
 
   const hasUnsavedChanges = dirtyRolls.size > 0;
 
@@ -184,8 +218,14 @@ export default function App() {
     }
   }, []);
 
-  // Load from server
+  const isCloudAdminRef = useRef<boolean>(isCloudAdmin);
+  useEffect(() => {
+    isCloudAdminRef.current = isCloudAdmin;
+  }, [isCloudAdmin]);
+
+  // Load from server (fallback only when Cloud Sync is not active)
   const fetchLedger = useCallback(async (token?: string) => {
+    if (isCloudAdminRef.current) return;
     try {
       const activeToken = token || adminPassword || sessionStorage.getItem(ADMIN_STORAGE_KEY) || '';
       const headers: Record<string, string> = {};
@@ -193,6 +233,7 @@ export default function App() {
         headers['x-admin-password'] = activeToken;
       }
       const res = await fetch('/api/ledger', { headers });
+      if (isCloudAdminRef.current) return;
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
@@ -210,7 +251,9 @@ export default function App() {
         loadFromLocalStorage();
       }
     } catch {
-      loadFromLocalStorage();
+      if (!isCloudAdminRef.current) {
+        loadFromLocalStorage();
+      }
     }
   }, [adminPassword, loadFromLocalStorage]);
 
@@ -218,10 +261,148 @@ export default function App() {
     fetchLedger();
   }, [fetchLedger]);
 
-  // Save changes to backend server & codebase
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      if (!user) {
+        setIsCloudAdmin(false);
+        setCloudStatus('disconnected');
+        setCloudError(null);
+        setAuthReady(true);
+        return;
+      }
+
+      const authorized = await checkIsCloudAdmin(user);
+      setIsCloudAdmin(authorized);
+      if (!authorized) {
+        setCloudStatus('unauthorized');
+      } else {
+        setCloudStatus('connecting');
+      }
+      setCloudError(null);
+      setAuthReady(true);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Subscribe to real-time Cloud Firestore ledger when Admin + Cloud Admin are active
+  useEffect(() => {
+    if (!isAdmin || !authReady || !firebaseUser || !isCloudAdmin) {
+      return;
+    }
+
+    setCloudStatus('connecting');
+    setCloudError(null);
+
+    const unsubscribe = subscribeAdminLedger(
+      firebaseUser.uid,
+      (cloudEntries, updatedAt) => {
+        setLedger((prev) => {
+          const stats = calculateStats(cloudEntries, prev.unitRate);
+          const next: LedgerData = {
+            ...prev,
+            title: 'Varsha',
+            entries: cloudEntries,
+            stats,
+            updatedAt,
+          };
+          try {
+            localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(next));
+          } catch {
+            // ignore
+          }
+          return next;
+        });
+        setCloudStatus('synced');
+        setCloudError(null);
+      },
+      (cloudSettings) => {
+        setLedger((prev) => {
+          const stats = calculateStats(prev.entries, cloudSettings.unitRate);
+          return {
+            ...prev,
+            title: cloudSettings.title || 'Varsha',
+            unitRate: cloudSettings.unitRate,
+            currencySymbol: cloudSettings.currencySymbol || '₹',
+            stats,
+          };
+        });
+      },
+      async () => {
+        // Seed Firestore with current entries so no prior local entries are lost
+        await seedInitialLedgerToFirestore(
+          firebaseUser.uid,
+          ledgerRef.current.entries,
+          ledgerRef.current.unitRate,
+          ledgerRef.current.currencySymbol
+        );
+      },
+      (err) => {
+        setCloudStatus('error');
+        setCloudError(err.message);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isAdmin, authReady, firebaseUser, isCloudAdmin]);
+
+  const handleSignInGoogle = useCallback(async () => {
+    setCloudError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Google Sign-In failed.';
+      setCloudError(msg);
+      setCloudStatus('error');
+    }
+  }, []);
+
+  const handleSignOutGoogle = useCallback(async () => {
+    setCloudError(null);
+    try {
+      await signOutFirebase();
+      setIsCloudAdmin(false);
+      setCloudStatus('disconnected');
+    } catch (err) {
+      setCloudError(err instanceof Error ? err.message : 'Sign out failed.');
+    }
+  }, []);
+
+  // Save changes to Cloud Firestore + backend server & codebase
   const syncWithServer = useCallback(
-    async (updatedLedger: LedgerData, currentPassword: string) => {
+    async (
+      updatedLedger: LedgerData,
+      currentPassword: string,
+      onlyRolls?: Set<number>
+    ) => {
       setSaveStatus('saving');
+
+      let cloudSaved = false;
+      if (isCloudAdmin && firebaseUser?.uid) {
+        try {
+          await saveLedgerChangesToFirestore(
+            updatedLedger.entries,
+            {
+              title: updatedLedger.title || 'Varsha',
+              unitRate: updatedLedger.unitRate,
+              currencySymbol: updatedLedger.currencySymbol || '₹',
+            },
+            firebaseUser.uid,
+            onlyRolls
+          );
+          cloudSaved = true;
+          setCloudStatus('synced');
+          setCloudError(null);
+        } catch (err) {
+          setSaveStatus('error');
+          setCloudStatus('error');
+          setCloudError(err instanceof Error ? err.message : 'Cloud save failed.');
+          return;
+        }
+      }
+
       try {
         const res = await fetch('/api/ledger', {
           method: 'PUT',
@@ -245,10 +426,9 @@ export default function App() {
           } catch {
             // ignore
           }
-        } else if (res.status === 401) {
+        } else if (res.status === 401 && !cloudSaved) {
           setSaveStatus('error');
         } else {
-          // Static hosting without API backend: persist locally
           try {
             localStorage.setItem(LEDGER_LOCAL_KEY, JSON.stringify(updatedLedger));
           } catch {
@@ -267,8 +447,26 @@ export default function App() {
         setDirtyRolls(new Set());
       }
     },
-    []
+    [isCloudAdmin, firebaseUser]
   );
+
+  const handleForcePushToCloud = useCallback(async () => {
+    if (!isCloudAdmin || !firebaseUser?.uid) {
+      throw new Error('Connect an authorized Admin Google account first.');
+    }
+    await saveLedgerChangesToFirestore(
+      ledgerRef.current.entries,
+      {
+        title: ledgerRef.current.title || 'Varsha',
+        unitRate: ledgerRef.current.unitRate,
+        currencySymbol: ledgerRef.current.currencySymbol || '₹',
+      },
+      firebaseUser.uid
+    );
+    setSaveStatus('saved');
+    setCloudStatus('synced');
+    setDirtyRolls(new Set());
+  }, [isCloudAdmin, firebaseUser]);
 
   // Handle password unlock for Admin
   const handleUnlock = async (enteredPassword: string): Promise<boolean> => {
@@ -396,9 +594,14 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     };
 
+    const changedSet = new Set(dirtyRolls);
     setLedger(updated);
-    await syncWithServer(updated, adminPassword);
-  }, [isAdmin, ledger, adminPassword, syncWithServer]);
+    await syncWithServer(
+      updated,
+      adminPassword,
+      changedSet.size > 0 ? changedSet : undefined
+    );
+  }, [isAdmin, ledger, adminPassword, dirtyRolls, syncWithServer]);
 
   // Apply bulk entries from Code Entry modal and save immediately
   const handleApplyCodeEntries = useCallback(
@@ -571,14 +774,14 @@ export default function App() {
                   </span>
                   <span className="text-xs text-slate-400">·</span>
                   <span className="text-xs text-slate-500 font-mono">
-                    Direct Codebase Sync Active
+                    {isCloudAdmin ? 'Live Multi-Mobile Cloud Sync Active' : 'Local / Codebase Mode'}
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
                   Varsha — Administrator Register
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Complete view of all 100 Roll Numbers (301 to 400) · 1 Entry = {ledger.currencySymbol}{ledger.unitRate} · Edit &amp; Save directly to codebase
+                  Complete view of all 100 Roll Numbers (301 to 400) · 1 Entry = {ledger.currencySymbol}{ledger.unitRate} · Saved entries sync across all mobile devices
                 </p>
               </div>
 
@@ -600,7 +803,7 @@ export default function App() {
                   ) : saveStatus === 'saved' ? (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Saved to Codebase</span>
+                      <span>{isCloudAdmin ? 'Synced to Cloud' : 'Saved Locally'}</span>
                     </>
                   ) : (
                     <>
@@ -609,6 +812,23 @@ export default function App() {
                     </>
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCloudModalOpen(true)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    isCloudAdmin
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                      : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-100'
+                  }`}
+                >
+                  {isCloudAdmin ? (
+                    <Cloud className="w-3.5 h-3.5" />
+                  ) : (
+                    <CloudOff className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isCloudAdmin ? 'Cloud Live' : 'Connect Cloud'}</span>
+                </button>
 
                 <button
                   type="button"
@@ -643,6 +863,47 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* Cloud Sync Prompt Banner when not connected across mobiles */}
+            {!isCloudAdmin && (
+              <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <CloudOff className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-indigo-950 dark:text-indigo-200 space-y-0.5">
+                    <div className="font-bold text-sm">
+                      {firebaseUser
+                        ? 'This Google Account Needs Cloud Admin Authorization'
+                        : 'Connect Google Cloud Sync to Share Entries Across Mobiles'}
+                    </div>
+                    <p className="text-indigo-800 dark:text-indigo-300">
+                      {firebaseUser
+                        ? `Signed in as ${firebaseUser.email}. Sign in with the primary admin Google account or add this device's UID in Cloud Sync so entries saved on one phone appear on all other phones.`
+                        : 'Sign in with Google so entries saved on one mobile phone immediately appear on every other mobile phone.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!firebaseUser ? (
+                    <button
+                      type="button"
+                      onClick={handleSignInGoogle}
+                      className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Cloud className="w-4 h-4" />
+                      Sign in with Google
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsCloudModalOpen(true)}
+                      className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors cursor-pointer shadow-xs"
+                    >
+                      Open Cloud Sync Setup
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Financial & Entry Statistics Cards (Unlocked for Admin) */}
             <StatsCards
@@ -700,7 +961,7 @@ export default function App() {
             <strong>Varsha</strong> Ledger System · Secured Administrator Portal.
           </div>
           <div className="flex items-center gap-4">
-            <span>100 Students (Rolls 301–400)</span>
+            <span>100 Persons (Rolls 301–400)</span>
             <span>·</span>
             <span>1 Entry = {ledger.currencySymbol}{ledger.unitRate}</span>
             <span>·</span>
@@ -755,6 +1016,18 @@ export default function App() {
         unitRate={ledger.unitRate}
         currencySymbol={ledger.currencySymbol}
         onApplyEntries={handleApplyCodeEntries}
+      />
+
+      <CloudSyncModal
+        isOpen={isCloudModalOpen}
+        onClose={() => setIsCloudModalOpen(false)}
+        firebaseUser={firebaseUser}
+        isCloudAdmin={isCloudAdmin}
+        cloudStatus={cloudStatus}
+        cloudError={cloudError}
+        onSignInGoogle={handleSignInGoogle}
+        onSignOutGoogle={handleSignOutGoogle}
+        onForcePushToCloud={handleForcePushToCloud}
       />
     </div>
   );

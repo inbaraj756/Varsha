@@ -87,7 +87,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">
-    <div><div style="color:#64748b;font-size:10px;text-transform:uppercase;">Total Rolls</div><strong>100 Students</strong></div>
+    <div><div style="color:#64748b;font-size:10px;text-transform:uppercase;">Total Rolls</div><strong>100 Persons</strong></div>
     <div><div style="color:#64748b;font-size:10px;text-transform:uppercase;">Active Entries</div><strong>${isAdmin ? `${stats.totalEntries} entries` : 'Admin Only'}</strong></div>
     <div><div style="color:#64748b;font-size:10px;text-transform:uppercase;">Rate Formula</div><strong>1 Entry = ${currencySymbol}${stats.unitRate}</strong></div>
     <div><div style="color:#64748b;font-size:10px;text-transform:uppercase;">Grand Total Sum</div><strong>${isAdmin ? `${currencySymbol}${stats.totalSum.toLocaleString()}` : 'Admin Only'}</strong></div>
@@ -191,7 +191,7 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-200 dark:border-slate-700 font-mono text-xs print:bg-slate-50 print:border-slate-300">
             <div>
               <div className="text-slate-500 text-[10px] uppercase font-sans">Total Rolls</div>
-              <div className="text-sm font-bold text-slate-900 dark:text-slate-100 print:text-slate-900">100 Students</div>
+              <div className="text-sm font-bold text-slate-900 dark:text-slate-100 print:text-slate-900">100 Persons</div>
             </div>
             <div>
               <div className="text-slate-500 text-[10px] uppercase font-sans">Active Entries</div>
